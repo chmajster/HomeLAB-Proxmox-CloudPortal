@@ -1,0 +1,18 @@
+Options -Indexes
+DirectoryIndex index.php
+
+<IfModule mod_rewrite.c>
+    RewriteEngine On
+    # When the release root is the DocumentRoot, /public is an internal asset
+    # target only. Block attempts to address it explicitly while preserving
+    # compatibility with the optional hardened public/ DocumentRoot layout.
+    RewriteCond %{THE_REQUEST} "\s/+(?:[^?\s]+/)?public(?:[/?\s])" [NC]
+    RewriteRule ^ - [F,L]
+    RewriteCond %{REQUEST_FILENAME} !-f
+    RewriteCond %{REQUEST_FILENAME} !-d
+    RewriteRule ^ index.php [QSA,L]
+</IfModule>
+
+<FilesMatch "^\.">
+    Require all denied
+</FilesMatch>

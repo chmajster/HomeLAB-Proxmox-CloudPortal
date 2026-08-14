@@ -1,0 +1,112 @@
+<?php
+
+declare(strict_types=1);
+
+namespace CloudPortal\Services\Proxmox;
+
+use CloudPortal\Http\HttpException;
+
+final class ProxmoxVmManager
+{
+    public function __construct(private readonly ProxmoxClientProviderInterface $clients)
+    {
+    }
+
+    /** @return array{status:array<string,mixed>,config:array<string,mixed>,snapshots:list<array<string,mixed>>} */
+    public function details(int $connectionId, string $node, int $vmid): array
+    {
+        [$client, $path] = $this->target($connectionId, $node, $vmid);
+        $status = $client->get($path . '/status/current');
+        $config = $client->get($path . '/config');
+        $snapshots = $client->get($path . '/snapshot');
+        if (!is_array($status) || !is_array($config) || !is_array($snapshots)) {
+            throw new \RuntimeException('Proxmox returned an invalid virtual machine details response.');
+        }
+
+        $safeStatus = $this->pick($status, ['name', 'status', 'qmpstatus', 'vmid', 'cpus', 'cpu', 'mem', 'maxmem', 'disk', 'maxdisk', 'uptime', 'lock', 'ha']);
+        $safeConfig = $this->pick($config, ['name', 'description', 'cores', 'sockets', 'memory', 'balloon', 'bios', 'machine', 'ostype', 'scsihw', 'boot', 'agent', 'onboot', 'protection', 'tags']);
+        foreach ($config as $key => $value) {
+            if (is_string($key) && preg_match('/^(?:scsi|sata|ide|virtio|net)\d+$/', $key) === 1 && (is_scalar($value) || $value === null)) {
+                $safeConfig[$key] = $value;
+            }
+        }
+        $safeSnapshots = [];
+        foreach ($snapshots as $snapshot) {
+            if (!is_array($snapshot) || trim((string) ($snapshot['name'] ?? '')) === '' || ($snapshot['name'] ?? null) === 'current') continue;
+            $safeSnapshots[] = $this->pick($snapshot, ['name', 'description', 'snaptime', 'parent', 'vmstate']);
+        }
+        usort($safeSnapshots, static fn (array $left, array $right): int => (int) ($right['snaptime'] ?? 0) <=> (int) ($left['snaptime'] ?? 0));
+        return ['status' => $safeStatus, 'config' => $safeConfig, 'snapshots' => $safeSnapshots];
+    }
+
+    public function power(int $connectionId, string $node, int $vmid, string $action): string
+    {
+        if (!in_array($action, ['start', 'shutdown', 'stop', 'reboot', 'suspend', 'resume'], true)) {
+            throw new HttpException(422, 'Unsupported Proxmox power action.');
+        }
+        [$client, $path] = $this->target($connectionId, $node, $vmid);
+        return $this->requireUpid($client->post($path . '/status/' . $action));
+    }
+
+    public function snapshot(int $connectionId, string $node, int $vmid, string $name, string $description = ''): string
+    {
+        $this->snapshotName($name);
+        [$client, $path] = $this->target($connectionId, $node, $vmid);
+        return $this->requireUpid($client->post($path . '/snapshot', [
+            'snapname' => $name,
+            'description' => mb_substr($description, 0, 255),
+        ]));
+    }
+
+    public function deleteSnapshot(int $connectionId, string $node, int $vmid, string $name): string
+    {
+        $this->snapshotName($name);
+        [$client, $path] = $this->target($connectionId, $node, $vmid);
+        return $this->requireUpid($client->delete($path . '/snapshot/' . rawurlencode($name)));
+    }
+
+    public function console(int $connectionId, string $node, int $vmid, string $proxyHost): string
+    {
+        [$client, $path] = $this->target($connectionId, $node, $vmid);
+        $config = $client->post($path . '/spiceproxy', ['proxy' => $proxyHost]);
+        if (!is_array($config)) throw new \RuntimeException('Proxmox did not return a SPICE console configuration.');
+        $allowed = ['type', 'host', 'proxy', 'password', 'tls-port', 'ca', 'host-subject', 'title', 'release-cursor', 'toggle-fullscreen', 'secure-attention', 'delete-this-file'];
+        $lines = ['[virt-viewer]'];
+        foreach ($allowed as $key) {
+            if (!array_key_exists($key, $config) || (!is_scalar($config[$key]) && $config[$key] !== null)) continue;
+            $lines[] = $key . '=' . str_replace(["\r", "\n"], ['', '\\n'], (string) $config[$key]);
+        }
+        if (!isset($config['delete-this-file'])) $lines[] = 'delete-this-file=1';
+        return implode("\n", $lines) . "\n";
+    }
+
+    /** @return array{ProxmoxClientInterface,string} */
+    private function target(int $connectionId, string $node, int $vmid): array
+    {
+        if ($connectionId <= 0 || $vmid < 100 || $vmid > 999999999 || preg_match('/^[A-Za-z0-9][A-Za-z0-9._-]{0,99}$/', $node) !== 1) {
+            throw new HttpException(422, 'Invalid Proxmox virtual machine target.');
+        }
+        return [$this->clients->forConnection($connectionId), '/nodes/' . rawurlencode($node) . '/qemu/' . $vmid];
+    }
+
+    private function snapshotName(string $name): void
+    {
+        if (preg_match('/^[A-Za-z0-9][A-Za-z0-9_-]{0,39}$/', $name) !== 1) throw new HttpException(422, 'Invalid snapshot name.');
+    }
+
+    /** @param array<string,mixed> $source @param list<string> $keys @return array<string,mixed> */
+    private function pick(array $source, array $keys): array
+    {
+        $result = [];
+        foreach ($keys as $key) {
+            if (array_key_exists($key, $source) && (is_scalar($source[$key]) || $source[$key] === null)) $result[$key] = $source[$key];
+        }
+        return $result;
+    }
+
+    private function requireUpid(mixed $value): string
+    {
+        if (!is_string($value) || !str_starts_with($value, 'UPID:')) throw new \RuntimeException('Proxmox did not return a valid task UPID.');
+        return $value;
+    }
+}

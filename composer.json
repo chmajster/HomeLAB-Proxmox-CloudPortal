@@ -1,0 +1,39 @@
+{
+  "name": "algen/proxmox-cloud-portal",
+  "description": "Self-service IaaS cloud portal for Proxmox VE",
+  "type": "project",
+  "license": "proprietary",
+  "require": {
+    "php": "^8.3",
+    "ext-curl": "*",
+    "ext-json": "*",
+    "ext-mbstring": "*",
+    "ext-pdo": "*",
+    "ext-pdo_mysql": "*",
+    "ext-sodium": "*"
+  },
+  "require-dev": {
+    "phpunit/phpunit": "^11.0"
+  },
+  "autoload": {
+    "psr-4": {
+      "CloudPortal\\Installer\\": "installer/",
+      "CloudPortal\\": "app/"
+    }
+  },
+  "autoload-dev": {
+    "psr-4": {
+      "CloudPortal\\Tests\\": "tests/"
+    }
+  },
+  "scripts": {
+    "test": "phpunit",
+    "test:smoke": "php tests/smoke.php",
+    "lint": "find app bin config installer public routes tests -name '*.php' -print0 | xargs -0 -n1 php -l"
+  },
+  "config": {
+    "sort-packages": true,
+    "optimize-autoloader": true,
+    "allow-plugins": {}
+  }
+}

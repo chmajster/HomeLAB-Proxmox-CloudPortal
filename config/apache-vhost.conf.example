@@ -1,0 +1,28 @@
+<VirtualHost *:80>
+    ServerName cloud.example.com
+    Redirect permanent / https://cloud.example.com/
+</VirtualHost>
+
+<VirtualHost *:443>
+    ServerName cloud.example.com
+    # Optional hardened deployment. The ZIP also works when extracted directly
+    # into an existing DocumentRoot thanks to the root .htaccess file.
+    DocumentRoot /var/www/algen-cloud-portal/public
+
+    SSLEngine on
+    SSLCertificateFile /etc/letsencrypt/live/cloud.example.com/fullchain.pem
+    SSLCertificateKeyFile /etc/letsencrypt/live/cloud.example.com/privkey.pem
+
+    <Directory /var/www/algen-cloud-portal/public>
+        Options -Indexes -MultiViews
+        AllowOverride All
+        Require all granted
+    </Directory>
+
+    <Directory /var/www/algen-cloud-portal>
+        Require all denied
+    </Directory>
+
+    ErrorLog ${APACHE_LOG_DIR}/algen-cloud-error.log
+    CustomLog ${APACHE_LOG_DIR}/algen-cloud-access.log combined
+</VirtualHost>

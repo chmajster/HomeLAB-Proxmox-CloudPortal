@@ -1,0 +1,22 @@
+[Unit]
+Description=Algen Cloud Portal Proxmox job worker
+After=network-online.target mariadb.service apache2.service
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=www-data
+Group=www-data
+WorkingDirectory=/var/www/algen-cloud-portal
+ExecStart=/usr/bin/php /var/www/algen-cloud-portal/bin/worker.php
+Restart=always
+RestartSec=3
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=/var/www/algen-cloud-portal/storage
+
+[Install]
+WantedBy=multi-user.target
+

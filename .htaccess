@@ -1,0 +1,20 @@
+Options -Indexes -MultiViews
+DirectoryIndex index.php
+
+<IfModule mod_rewrite.c>
+    RewriteEngine On
+
+    # The ZIP may be extracted directly into an Apache document root. Never
+    # expose application code, configuration, SQL, logs, tests or dependencies.
+    RewriteRule ^(?:app|bin|config|database|docs|installer|resources|routes|storage|tests|vendor)(?:/|$) - [F,L,NC]
+    RewriteRule ^(?:autoload\.php|composer\.(?:json|lock)|phpunit\.xml|README\.md|\.env(?:\.example)?)$ - [F,L,NC]
+    RewriteRule ^public(?:/|$) - [F,L,NC]
+
+    RewriteRule ^assets/(.*)$ public/assets/$1 [END]
+    RewriteCond %{REQUEST_FILENAME} !-f
+    RewriteRule ^ index.php [QSA,L]
+</IfModule>
+
+<FilesMatch "^\.">
+    Require all denied
+</FilesMatch>

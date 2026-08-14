@@ -1,0 +1,13 @@
+/vendor/
+/node_modules/
+/.phpunit.cache/
+/.env
+/config/runtime.php
+/storage/installed.lock
+/storage/logs/*.log
+/storage/*.png
+/storage/cache/*
+!/storage/cache/.gitkeep
+/storage/uploads/
+/.idea/
+/.vscode/
