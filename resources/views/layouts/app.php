@@ -17,6 +17,9 @@ $assetVersion = static function (string $path) use ($assetRoot): string {
 <body data-base-path="<?= htmlspecialchars((string) $basePath, ENT_QUOTES, 'UTF-8') ?>" data-page="<?= htmlspecialchars($page, ENT_QUOTES, 'UTF-8') ?>" data-csrf="<?= htmlspecialchars($csrf, ENT_QUOTES, 'UTF-8') ?>" data-admin="<?= $isAdmin ? '1' : '0' ?>" data-user-id="<?= (int) $user['id'] ?>">
   <?= $content ?>
   <script src="<?= htmlspecialchars((string) $basePath, ENT_QUOTES, 'UTF-8') ?>/assets/js/ui.js?v=<?= $assetVersion('js/ui.js') ?>" defer></script>
+  <script src="<?= htmlspecialchars((string) $basePath, ENT_QUOTES, 'UTF-8') ?>/assets/js/modules/api.js?v=<?= $assetVersion('js/modules/api.js') ?>" defer></script>
+  <script src="<?= htmlspecialchars((string) $basePath, ENT_QUOTES, 'UTF-8') ?>/assets/js/modules/jobs.js?v=<?= $assetVersion('js/modules/jobs.js') ?>" defer></script>
+  <script src="<?= htmlspecialchars((string) $basePath, ENT_QUOTES, 'UTF-8') ?>/assets/js/modules/system.js?v=<?= $assetVersion('js/modules/system.js') ?>" defer></script>
   <script src="<?= htmlspecialchars((string) $basePath, ENT_QUOTES, 'UTF-8') ?>/assets/js/app.js?v=<?= $assetVersion('js/app.js') ?>" defer></script>
 </body>
 </html>

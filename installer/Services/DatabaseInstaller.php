@@ -4,16 +4,18 @@ declare(strict_types=1);
 
 namespace CloudPortal\Installer\Services;
 
+use CloudPortal\Database\MigrationService;
 use PDO;
 
 final class DatabaseInstaller
 {
-    public const SCHEMA_VERSION = '1.0.0';
+    public const SCHEMA_VERSION = '1.1.0';
     public const REQUIRED_TABLES = [
         'schema_migrations', 'roles', 'permissions', 'role_permissions', 'users', 'projects', 'project_users',
         'proxmox_connections', 'proxmox_nodes', 'resource_plans', 'vm_templates', 'networks', 'project_networks',
-        'storages', 'project_storages', 'virtual_machines', 'quotas', 'quota_reservations', 'ip_addresses',
-        'jobs', 'snapshots', 'audit_logs', 'settings', 'password_reset_tokens', 'login_attempts',
+        'storages', 'project_storages', 'virtual_machines', 'quotas', 'quota_reservations', 'quota_template_limits',
+        'ip_addresses', 'jobs', 'snapshots', 'vm_disks', 'vm_nics', 'backups', 'worker_heartbeats', 'webhooks',
+        'webhook_deliveries', 'audit_logs', 'settings', 'password_reset_tokens', 'login_attempts',
     ];
 
     public function __construct(private readonly string $schemaPath)
@@ -60,6 +62,7 @@ final class DatabaseInstaller
             $schema = file_get_contents($this->schemaPath);
             if (!is_string($schema) || trim($schema) === '') throw new \RuntimeException('The database schema file cannot be read.');
             $pdo->exec($schema);
+            (new MigrationService($pdo, dirname($this->schemaPath) . '/migrations'))->apply();
             $this->verify($pdo);
             return ['version' => self::SCHEMA_VERSION, 'tables' => count($this->tables($pdo))];
         } catch (\Throwable $exception) {
@@ -108,7 +111,9 @@ final class DatabaseInstaller
     {
         if (!in_array('schema_migrations', $this->tables($pdo), true)) return false;
         try {
-            return (bool) $pdo->query("SELECT 1 FROM schema_migrations WHERE version='" . self::SCHEMA_VERSION . "' LIMIT 1")->fetchColumn();
+            $statement = $pdo->prepare('SELECT 1 FROM schema_migrations WHERE version=:version LIMIT 1');
+            $statement->execute(['version' => self::SCHEMA_VERSION]);
+            return (bool) $statement->fetchColumn();
         } catch (\Throwable) {
             return false;
         }
