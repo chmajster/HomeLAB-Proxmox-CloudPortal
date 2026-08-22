@@ -10,13 +10,16 @@ use CloudPortal\Services\IPAM\IPAMService;
 use CloudPortal\Services\Placement\PlacementService;
 use CloudPortal\Services\Quota\QuotaExceeded;
 use CloudPortal\Services\Quota\QuotaService;
+use CloudPortal\Support\Config;
 use CloudPortal\Support\Uuid;
 use PDO;
 
 final class ProvisioningRequestService
 {
-    public function __construct(private readonly Database $database)
-    {
+    public function __construct(
+        private readonly Database $database,
+        private readonly ?Config $config = null,
+    ) {
     }
 
     /** @param array<string,mixed> $input */
@@ -30,14 +33,32 @@ final class ProvisioningRequestService
                 throw new HttpException(403, 'A user cannot provision resources for another account.');
             }
 
-            $name = trim((string) ($input['name'] ?? ''));
-            if (preg_match('/^[a-zA-Z0-9][a-zA-Z0-9-]{1,62}$/', $name) !== 1) {
-                throw new HttpException(422, 'VM name must contain 2-63 letters, digits or hyphens.');
+            $managed = $this->managedRequested($input);
+            if ($managed && !$this->managedConfigured()) {
+                throw new HttpException(422, 'Managed VM provisioning requires DNS API and hostname generator configuration.');
             }
-            $exists = $pdo->prepare("SELECT 1 FROM virtual_machines WHERE project_id=:project AND name=:name AND status<>'deleted' LIMIT 1");
-            $exists->execute(['project' => $projectId, 'name' => $name]);
-            if ($exists->fetchColumn()) {
-                throw new HttpException(409, 'A VM with this name already exists in the project.');
+
+            if ($managed) {
+                $generator = new HostnameGenerator($pdo, (string) $this->config?->get('hostname_generator.pattern', 'vm-{project}-{counter}'));
+                $name = '';
+                for ($attempt = 0; $attempt < 100; $attempt++) {
+                    $candidate = $generator->generate($projectId, $ownerId);
+                    if (!$this->nameExists($pdo, $projectId, $candidate)) {
+                        $name = $candidate;
+                        break;
+                    }
+                }
+                if ($name === '') {
+                    throw new HttpException(409, 'Could not generate a unique VM hostname.');
+                }
+            } else {
+                $name = trim((string) ($input['name'] ?? ''));
+                if (preg_match('/^[a-zA-Z0-9][a-zA-Z0-9-]{1,62}$/', $name) !== 1) {
+                    throw new HttpException(422, 'VM name must contain 2-63 letters, digits or hyphens.');
+                }
+                if ($this->nameExists($pdo, $projectId, $name)) {
+                    throw new HttpException(409, 'A VM with this name already exists in the project.');
+                }
             }
 
             $catalog = $this->catalog($pdo, $projectId, $input);
@@ -90,11 +111,46 @@ final class ProvisioningRequestService
                 'storage_name' => (string) $catalog['storage_name'],
                 'cloud_init_user' => $cloudUser,
                 'ssh_public_key' => $sshKey,
-                'start_after_create' => !isset($input['start_after_create']) || filter_var($input['start_after_create'], FILTER_VALIDATE_BOOL),
+                'managed_provisioning' => $managed,
+                'start_after_create' => $managed ? false : (!isset($input['start_after_create']) || filter_var($input['start_after_create'], FILTER_VALIDATE_BOOL)),
             ];
             $type = $targetNode === $sourceNode ? 'vm.create' : 'vm.create.placed';
-            return (new JobRepository($pdo))->enqueue($type, $userId, $projectId, (int) $catalog['connection_id'], $payload, $reservationKey, null, $type === 'vm.create.placed' ? 4 : 1);
+            $jobId = (new JobRepository($pdo))->enqueue($type, $userId, $projectId, (int) $catalog['connection_id'], $payload, $reservationKey, null, $type === 'vm.create.placed' ? 4 : 1);
+            if ($managed) {
+                (new ProvisioningStateRepository($pdo))->createReserved($jobId, $reservationKey, $name, (string) $ip['address']);
+            }
+            return $jobId;
         });
+    }
+
+    /** @param array<string,mixed> $input */
+    private function managedRequested(array $input): bool
+    {
+        if (!array_key_exists('managed_provisioning', $input)) {
+            return $this->managedConfigured();
+        }
+        $value = filter_var($input['managed_provisioning'], FILTER_VALIDATE_BOOL, FILTER_NULL_ON_FAILURE);
+        if ($value === null) {
+            throw new HttpException(422, 'managed_provisioning must be a boolean.');
+        }
+        return $value;
+    }
+
+    private function managedConfigured(): bool
+    {
+        if (!$this->config instanceof Config) {
+            return false;
+        }
+        return trim((string) $this->config->get('dns.server_ip', '')) !== ''
+            && trim((string) $this->config->get('dns.api_token_encrypted', '')) !== ''
+            && trim((string) $this->config->get('hostname_generator.pattern', '')) !== '';
+    }
+
+    private function nameExists(PDO $pdo, int $projectId, string $name): bool
+    {
+        $exists = $pdo->prepare("SELECT 1 FROM virtual_machines WHERE project_id=:project AND name=:name AND status<>'deleted' LIMIT 1");
+        $exists->execute(['project' => $projectId, 'name' => $name]);
+        return (bool) $exists->fetchColumn();
     }
 
     private function assertMembership(PDO $pdo, int $projectId, int $userId): void

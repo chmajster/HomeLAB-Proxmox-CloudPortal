@@ -137,8 +137,20 @@ final class ProxmoxClient implements ProxmoxClientInterface, ProxmoxFileUploadIn
             ],
         ];
         if ($method !== 'GET' && $data !== []) {
-            $options[CURLOPT_POSTFIELDS] = http_build_query($data, '', '&', PHP_QUERY_RFC3986);
-            $options[CURLOPT_HTTPHEADER][] = 'Content-Type: application/x-www-form-urlencoded';
+            $containsArray = false;
+            foreach ($data as $value) {
+                if (is_array($value)) {
+                    $containsArray = true;
+                    break;
+                }
+            }
+            if ($containsArray) {
+                $options[CURLOPT_POSTFIELDS] = json_encode($data, JSON_THROW_ON_ERROR | JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE);
+                $options[CURLOPT_HTTPHEADER][] = 'Content-Type: application/json';
+            } else {
+                $options[CURLOPT_POSTFIELDS] = http_build_query($data, '', '&', PHP_QUERY_RFC3986);
+                $options[CURLOPT_HTTPHEADER][] = 'Content-Type: application/x-www-form-urlencoded';
+            }
         }
         curl_setopt_array($curl, $options);
         return $this->execute($curl);
