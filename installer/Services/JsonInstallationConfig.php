@@ -13,7 +13,10 @@ final class JsonInstallationConfig
      *   database:array<string,mixed>,
      *   administrator:array<string,mixed>,
      *   proxmox:array<string,mixed>,
-     *   portal:array<string,mixed>
+     *   portal:array<string,mixed>,
+     *   dns:array<string,mixed>,
+     *   proxmox_credentials:array<string,mixed>,
+     *   hostname_generator:array{pattern:string}
      * }
      */
     public function load(string $path, string $defaultBaseUrl): array
@@ -43,9 +46,11 @@ final class JsonInstallationConfig
         }
 
         $database = $this->section($decoded, 'database', true);
-        $administrator = $this->section($decoded, 'administrator', true);
+        $administrator = $this->administratorSection($decoded);
         $proxmox = $this->section($decoded, 'proxmox', false);
         $portal = $this->section($decoded, 'portal', false);
+        $dns = $this->dns($this->section($decoded, 'dns', false));
+        $hostnameGenerator = $this->hostnameGenerator($decoded);
 
         $databaseInput = [
             'db_driver' => $database['driver'] ?? 'mysql',
@@ -59,25 +64,14 @@ final class JsonInstallationConfig
 
         $administratorPassword = (string) ($administrator['password'] ?? '');
         $administratorInput = [
-            'username' => $administrator['username'] ?? '',
+            'username' => $administrator['username'] ?? $administrator['login'] ?? '',
             'email' => $administrator['email'] ?? '',
             'password' => $administratorPassword,
             'password_confirmation' => $administrator['password_confirmation'] ?? $administratorPassword,
             'resume_existing_admin' => $administrator['resume_existing'] ?? false,
         ];
 
-        $proxmoxInput = $proxmox === []
-            ? ['skip_proxmox' => true]
-            : [
-                'skip_proxmox' => $proxmox['skip'] ?? false,
-                'connection_name' => $proxmox['name'] ?? 'Primary Proxmox',
-                'hostname' => $proxmox['hostname'] ?? '',
-                'port' => $proxmox['port'] ?? 8006,
-                'realm' => $proxmox['realm'] ?? 'pve',
-                'api_token_id' => $proxmox['token_id'] ?? '',
-                'api_token_secret' => $proxmox['token_secret'] ?? '',
-                'verify_ssl' => $proxmox['verify_ssl'] ?? true,
-            ];
+        [$proxmoxInput, $proxmoxCredentials] = $this->proxmox($proxmox);
 
         $portalInput = [
             'portal_name' => $portal['name'] ?? 'Algen Cloud Portal',
@@ -87,15 +81,127 @@ final class JsonInstallationConfig
             'session_lifetime' => $portal['session_lifetime'] ?? 7200,
         ];
 
-        // Validate every section before the installer performs any database or
-        // filesystem mutation. This prevents a syntactically valid but
-        // incomplete JSON file from causing a partial installation.
         return [
             'database' => InstallerInput::database($databaseInput),
             'administrator' => InstallerInput::administrator($administratorInput),
             'proxmox' => InstallerInput::proxmox($proxmoxInput),
             'portal' => InstallerInput::portal($portalInput),
+            'dns' => $dns,
+            'proxmox_credentials' => $proxmoxCredentials,
+            'hostname_generator' => $hostnameGenerator,
         ];
+    }
+
+    /** @param array<string,mixed> $data @return array<string,mixed> */
+    private function administratorSection(array $data): array
+    {
+        $hasAdministrator = array_key_exists('administrator', $data);
+        $hasPanel = array_key_exists('panel', $data);
+        if ($hasAdministrator && $hasPanel) {
+            throw new \RuntimeException("install.json must use either 'panel' or legacy 'administrator', not both.");
+        }
+        return $this->section($data, $hasPanel ? 'panel' : 'administrator', true);
+    }
+
+    /** @param array<string,mixed> $proxmox @return array{0:array<string,mixed>,1:array<string,mixed>} */
+    private function proxmox(array $proxmox): array
+    {
+        if ($proxmox === []) {
+            return [['skip_proxmox' => true], []];
+        }
+
+        $skip = filter_var($proxmox['skip'] ?? false, FILTER_VALIDATE_BOOL);
+        if ($skip) {
+            return [['skip_proxmox' => true], []];
+        }
+
+        $login = trim((string) ($proxmox['login'] ?? ''));
+        $password = (string) ($proxmox['password'] ?? '');
+        if ($login !== '' && preg_match('/^[A-Za-z0-9._-]+(?:@[A-Za-z0-9._-]+)?$/', $login) !== 1) {
+            throw new \RuntimeException('proxmox.login must use user or user@realm format.');
+        }
+        if (preg_match('/[\r\n]/', $password)) {
+            throw new \RuntimeException('proxmox.password must not contain line breaks.');
+        }
+
+        $tokenId = trim((string) ($proxmox['token_id'] ?? ''));
+        $tokenSecret = (string) ($proxmox['token_secret'] ?? $proxmox['token'] ?? '');
+        if ($tokenId === '' && str_contains($tokenSecret, '=')) {
+            [$candidateId, $candidateSecret] = explode('=', $tokenSecret, 2);
+            if (str_contains($candidateId, '!') && $candidateSecret !== '') {
+                $tokenId = trim($candidateId);
+                $tokenSecret = $candidateSecret;
+            }
+        }
+
+        $tokenName = trim((string) ($proxmox['token_name'] ?? 'cloudportal'));
+        if ($tokenId === '' && $login !== '' && $tokenSecret !== '') {
+            if (preg_match('/^[A-Za-z0-9._-]{1,64}$/', $tokenName) !== 1) {
+                throw new \RuntimeException('proxmox.token_name is invalid.');
+            }
+            $tokenId = $login . '!' . $tokenName;
+        }
+
+        return [[
+            'skip_proxmox' => false,
+            'connection_name' => $proxmox['name'] ?? 'Primary Proxmox',
+            'hostname' => $proxmox['hostname'] ?? '',
+            'port' => $proxmox['port'] ?? 8006,
+            'realm' => $proxmox['realm'] ?? 'pve',
+            'api_token_id' => $tokenId,
+            'api_token_secret' => $tokenSecret,
+            'verify_ssl' => $proxmox['verify_ssl'] ?? true,
+        ], [
+            'login' => $login,
+            'password' => $password,
+        ]];
+    }
+
+    /** @param array<string,mixed> $dns @return array<string,mixed> */
+    private function dns(array $dns): array
+    {
+        if ($dns === []) {
+            return [];
+        }
+
+        $serverIp = trim((string) ($dns['server_ip'] ?? $dns['ip'] ?? ''));
+        $apiToken = (string) ($dns['api_token'] ?? $dns['token'] ?? '');
+        if (filter_var($serverIp, FILTER_VALIDATE_IP) === false) {
+            throw new \RuntimeException('dns.server_ip must be a valid IPv4 or IPv6 address.');
+        }
+        if ($apiToken === '' || preg_match('/[\r\n]/', $apiToken)) {
+            throw new \RuntimeException('dns.api_token is required and must not contain line breaks.');
+        }
+
+        return ['server_ip' => $serverIp, 'api_token' => $apiToken];
+    }
+
+    /** @param array<string,mixed> $data @return array{pattern:string} */
+    private function hostnameGenerator(array $data): array
+    {
+        $section = $this->section($data, 'hostname_generator', false);
+        $pattern = trim((string) (
+            $section['pattern']
+            ?? $data['hostname_generator_pattern']
+            ?? 'vm-{project}-{counter}'
+        ));
+        if ($pattern === '' || strlen($pattern) > 128) {
+            throw new \RuntimeException('hostname_generator.pattern must contain 1-128 characters.');
+        }
+        if (preg_match('/^[A-Za-z0-9._{}-]+$/', $pattern) !== 1) {
+            throw new \RuntimeException('hostname_generator.pattern contains unsupported characters.');
+        }
+        preg_match_all('/\{([A-Za-z0-9_]+)\}/', $pattern, $matches);
+        foreach ($matches[1] as $placeholder) {
+            if (!in_array($placeholder, ['project', 'user', 'counter'], true)) {
+                throw new \RuntimeException("hostname_generator.pattern contains unsupported placeholder {{$placeholder}}.");
+            }
+        }
+        if (!str_contains($pattern, '{counter}')) {
+            throw new \RuntimeException('hostname_generator.pattern must contain {counter} to keep generated hostnames unique.');
+        }
+
+        return ['pattern' => $pattern];
     }
 
     /** @param array<string,mixed> $data @return array<string,mixed> */
