@@ -12,34 +12,46 @@ final class PlatformOperationsTest extends MariaDbTestCase
 {
     public function testRetryBackoffDeadLetterAndManualRetry(): void
     {
-        $fixture = $this->fixture();
+        if (self::$pdo->inTransaction()) {
+            self::$pdo->rollBack();
+        }
         $jobs = new JobRepository(self::$pdo);
-        $publicId = $jobs->enqueue('vm.reconfigure', $fixture['user'], $fixture['project'], null, [], null, null, 2);
-        $first = $jobs->claimNext();
-        self::assertIsArray($first);
-        self::assertSame(1, $first['attempts']);
-        $jobs->fail((int) $first['id'], 'first failure');
-        self::$pdo->prepare('UPDATE jobs SET available_at=CURRENT_TIMESTAMP WHERE public_id=:id')->execute(['id' => $publicId]);
-        $second = $jobs->claimNext();
-        self::assertIsArray($second);
-        self::assertSame(2, $second['attempts']);
-        $jobs->fail((int) $second['id'], 'second failure');
-        self::assertSame('dead_letter', $jobs->find($publicId)['status']);
-        self::assertTrue($jobs->manualRetry($publicId));
-        $retried = $jobs->find($publicId);
-        self::assertSame('queued', $retried['status']);
-        self::assertSame(0, (int) $retried['attempts']);
+        $publicId = $jobs->enqueue('vm.reconfigure', null, null, null, [], null, null, 2);
+        try {
+            $first = $jobs->claimNext();
+            self::assertIsArray($first);
+            self::assertSame(1, $first['attempts']);
+            $jobs->fail((int) $first['id'], 'first failure');
+            self::$pdo->prepare('UPDATE jobs SET available_at=CURRENT_TIMESTAMP WHERE public_id=:id')->execute(['id' => $publicId]);
+            $second = $jobs->claimNext();
+            self::assertIsArray($second);
+            self::assertSame(2, $second['attempts']);
+            $jobs->fail((int) $second['id'], 'second failure');
+            self::assertSame('dead_letter', $jobs->find($publicId)['status']);
+            self::assertTrue($jobs->manualRetry($publicId));
+            $retried = $jobs->find($publicId);
+            self::assertSame('queued', $retried['status']);
+            self::assertSame(0, (int) $retried['attempts']);
+        } finally {
+            self::$pdo->prepare('DELETE FROM jobs WHERE public_id=:id')->execute(['id' => $publicId]);
+        }
     }
 
     public function testNonRetryableCreateFailsWithoutDuplicateRisk(): void
     {
-        $fixture = $this->fixture();
+        if (self::$pdo->inTransaction()) {
+            self::$pdo->rollBack();
+        }
         $jobs = new JobRepository(self::$pdo);
-        $id = $jobs->enqueue('vm.create', $fixture['user'], $fixture['project'], null, [], '00000000-0000-4000-8000-000000000001', null, 3);
-        $job = $jobs->claimNext();
-        self::assertIsArray($job);
-        $jobs->fail((int) $job['id'], 'unsafe to retry automatically');
-        self::assertSame('failed', $jobs->find($id)['status']);
+        $publicId = $jobs->enqueue('vm.create', null, null, null, [], null, null, 3);
+        try {
+            $job = $jobs->claimNext();
+            self::assertIsArray($job);
+            $jobs->fail((int) $job['id'], 'unsafe to retry automatically');
+            self::assertSame('failed', $jobs->find($publicId)['status']);
+        } finally {
+            self::$pdo->prepare('DELETE FROM jobs WHERE public_id=:id')->execute(['id' => $publicId]);
+        }
     }
 
     public function testPlacementSkipsMaintenanceAndPrefersHealthyCapacity(): void
