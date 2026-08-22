@@ -11,6 +11,7 @@ use CloudPortal\Services\Provisioning\AdvancedJobProcessor;
 use CloudPortal\Services\Provisioning\JobRepository;
 use CloudPortal\Services\Provisioning\PlacedCreateProcessor;
 use CloudPortal\Services\Provisioning\ProxmoxProvisioner;
+use CloudPortal\Services\Provisioning\VmIdentityJobProcessor;
 use CloudPortal\Services\Proxmox\ProxmoxClientFactory;
 
 $root = dirname(__DIR__);
@@ -27,6 +28,7 @@ $clients = new ProxmoxClientFactory($database->pdo(), $app->crypto());
 $provisioner = new ProxmoxProvisioner($database, $clients, $jobs, $app->audit());
 $advanced = new AdvancedJobProcessor($database, $clients, $jobs, $app->audit());
 $placedCreate = new PlacedCreateProcessor($database, $clients, $jobs, $app->audit());
+$identity = new VmIdentityJobProcessor($database, $clients, $jobs, $app->audit());
 $heartbeat = new WorkerHeartbeatService($database->pdo(), (string) ($argv[0] ?? 'cloud-worker') . '@' . (gethostname() ?: 'unknown'), Application::VERSION);
 $webhooks = new WebhookService($database->pdo(), $app->crypto());
 $heartbeat->beat();
@@ -34,7 +36,7 @@ $heartbeat->beat();
 foreach ($jobs->staleRunning() as $staleJob) {
     if (!$jobs->acquireExecutionLock((string) $staleJob['public_id'])) continue;
     try {
-        if ((string) $staleJob['type'] === 'vm.create.placed' || $advanced->supports((string) $staleJob['type'])) {
+        if ((string) $staleJob['type'] === 'vm.create.placed' || $advanced->supports((string) $staleJob['type']) || $identity->supports((string) $staleJob['type'])) {
             $jobs->fail((int) $staleJob['id'], 'Worker interrupted; operation was returned to the retry queue.');
         } else {
             $provisioner->recoverStale($staleJob);
@@ -85,6 +87,8 @@ do {
     try {
         if ((string) $job['type'] === 'vm.create.placed') {
             $placedCreate->process($job);
+        } elseif ($identity->supports((string) $job['type'])) {
+            $identity->process($job);
         } elseif ($advanced->supports((string) $job['type'])) {
             $advanced->process($job);
         } else {
