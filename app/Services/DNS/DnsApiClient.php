@@ -36,15 +36,25 @@ final class DnsApiClient implements DnsApiClientInterface
         $fqdn = strtolower($hostname . '.' . $forwardZone);
 
         $a = $this->ensureRecord($forwardZone, $hostname, 'A', $ipAddress);
-        $ptrOwner = $this->relativeOwner($reverse['fqdn'], $reverseZone);
-        $ptr = $this->ensureRecord($reverseZone, $ptrOwner, 'PTR', $fqdn . '.');
+        try {
+            $ptrOwner = $this->relativeOwner($reverse['fqdn'], $reverseZone);
+            $ptr = $this->ensureRecord($reverseZone, $ptrOwner, 'PTR', $fqdn . '.');
+        } catch (\Throwable $exception) {
+            if ($a['created']) {
+                try {
+                    $this->deleteRecord($forwardZone, $a['id']);
+                } catch (\Throwable) {
+                }
+            }
+            throw $exception;
+        }
 
         return [
             'fqdn' => $fqdn,
             'forward_zone' => $forwardZone,
             'reverse_zone' => $reverseZone,
-            'a_record_id' => $a,
-            'ptr_record_id' => $ptr,
+            'a_record_id' => $a['created'] ? $a['id'] : 0,
+            'ptr_record_id' => $ptr['created'] ? $ptr['id'] : 0,
         ];
     }
 
@@ -152,7 +162,8 @@ final class DnsApiClient implements DnsApiClientInterface
             && trim((string) ($zone['name'] ?? '')) !== '';
     }
 
-    private function ensureRecord(string $zone, string $name, string $type, string $value): int
+    /** @return array{id:int,created:bool} */
+    private function ensureRecord(string $zone, string $name, string $type, string $value): array
     {
         $list = $this->request('GET', '/zones/' . rawurlencode($zone) . '/records', null, ['limit' => 500]);
         foreach (is_array($list['items'] ?? null) ? $list['items'] : [] as $record) {
@@ -162,7 +173,7 @@ final class DnsApiClient implements DnsApiClientInterface
             if (strtolower((string) ($record['name'] ?? '')) === strtolower($name)
                 && strtoupper((string) ($record['type'] ?? '')) === $type
                 && strtolower(rtrim((string) ($record['value'] ?? ''), '.')) === strtolower(rtrim($value, '.'))) {
-                return (int) ($record['id'] ?? 0);
+                return ['id' => (int) ($record['id'] ?? 0), 'created' => false];
             }
         }
 
@@ -182,7 +193,7 @@ final class DnsApiClient implements DnsApiClientInterface
         if ($id <= 0) {
             throw new \RuntimeException('HomeLAB-DNS did not return the created DNS record ID.');
         }
-        return $id;
+        return ['id' => $id, 'created' => true];
     }
 
     /** @return array{fqdn:string} */
