@@ -12,6 +12,7 @@ use CloudPortal\Controllers\JobController;
 use CloudPortal\Controllers\PlacementAdminController;
 use CloudPortal\Controllers\ProjectAdminController;
 use CloudPortal\Controllers\ProxmoxAdminController;
+use CloudPortal\Controllers\QuotaAdminController;
 use CloudPortal\Controllers\ResourceController;
 use CloudPortal\Controllers\SystemController;
 use CloudPortal\Controllers\TemplateAdminController;
@@ -32,6 +33,7 @@ return static function (Router $router, Application $app): void {
     $admin = new AdminController($app);
     $projectAdmin = new ProjectAdminController($app);
     $proxmoxAdmin = new ProxmoxAdminController($app);
+    $quotaAdmin = new QuotaAdminController($app);
     $templateAdmin = new TemplateAdminController($app);
     $system = new SystemController($app);
     $webhooks = new WebhookAdminController($app);
@@ -81,6 +83,10 @@ return static function (Router $router, Application $app): void {
     $router->add('DELETE', '/api/v1/admin/webhooks/{id}', [$webhooks, 'delete']);
     $router->add('GET', '/api/v1/admin/webhooks/{id}/deliveries', [$webhooks, 'deliveries']);
 
+    $router->add('GET', '/api/v1/admin/quota-template-limits', [$quotaAdmin, 'templateLimits']);
+    $router->add('POST', '/api/v1/admin/quotas', [$quotaAdmin, 'upsert']);
+    $router->add('POST', '/api/v1/admin/quota-template-limits', [$quotaAdmin, 'upsertTemplateLimit']);
+    $router->add('DELETE', '/api/v1/admin/quota-template-limits/{id}', [$quotaAdmin, 'deleteTemplateLimit']);
     $router->add('GET', '/api/v1/admin/{resource}', [$admin, 'index']);
     $router->add('GET', '/api/v1/admin/networks/discovery', [$proxmoxAdmin, 'networkDiscovery']);
     $router->add('GET', '/api/v1/admin/storages/discovery', [$proxmoxAdmin, 'storageDiscovery']);
