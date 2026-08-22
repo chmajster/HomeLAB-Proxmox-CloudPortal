@@ -34,6 +34,8 @@ final class PortalController
             'csrf' => $this->app->csrf->token(),
             'appName' => $this->app->setting('portal.name', $this->app->config->get('app.name')),
             'firstRun' => $this->firstRunChecklist(),
+            'managedProvisioning' => $this->managedProvisioningConfigured(),
+            'hostnamePattern' => (string) $this->app->config->get('hostname_generator.pattern', 'vm-{project}-{counter}'),
         ]));
     }
 
@@ -58,5 +60,12 @@ final class PortalController
             'proxmox' => $counts['proxmox_connections'] > 0, 'networks' => $counts['networks'] > 0,
             'templates' => $counts['vm_templates'] > 0, 'plans' => $counts['resource_plans'] > 0,
         ];
+    }
+
+    private function managedProvisioningConfigured(): bool
+    {
+        return trim((string) $this->app->config->get('dns.server_ip', '')) !== ''
+            && trim((string) $this->app->config->get('dns.api_token_encrypted', '')) !== ''
+            && trim((string) $this->app->config->get('hostname_generator.pattern', '')) !== '';
     }
 }
