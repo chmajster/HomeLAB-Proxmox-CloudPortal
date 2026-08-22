@@ -75,8 +75,30 @@ final class JobRepository
     /** @param array<string,mixed> $result */
     public function complete(int $jobId, array $result = []): void
     {
+        $encoded = json_encode($result, JSON_THROW_ON_ERROR | JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE);
+        $managedStatus = $this->managedProvisioningStatus($jobId);
+        if ($managedStatus !== null && $managedStatus !== 'READY') {
+            $vmId = isset($result['virtual_machine_id']) ? (int) $result['virtual_machine_id'] : 0;
+            $this->pdo->prepare(
+                "UPDATE jobs SET status='running',result=:result,error_message=NULL,finished_at=NULL,dead_letter_at=NULL,
+                 virtual_machine_id=COALESCE(NULLIF(:vm,0),virtual_machine_id) WHERE id=:id"
+            )->execute(['result' => $encoded, 'vm' => $vmId, 'id' => $jobId]);
+            if ($vmId > 0) {
+                $this->pdo->prepare('UPDATE vm_provisioning SET virtual_machine_id=:vm WHERE job_id=:job AND virtual_machine_id IS NULL')
+                    ->execute(['vm' => $vmId, 'job' => $jobId]);
+            }
+            return;
+        }
         $this->pdo->prepare("UPDATE jobs SET status='completed',result=:result,error_message=NULL,finished_at=CURRENT_TIMESTAMP,dead_letter_at=NULL WHERE id=:id")
-            ->execute(['result' => json_encode($result, JSON_THROW_ON_ERROR | JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE), 'id' => $jobId]);
+            ->execute(['result' => $encoded, 'id' => $jobId]);
+    }
+
+    public function requeueInterrupted(int $jobId, string $message): void
+    {
+        $this->pdo->prepare(
+            "UPDATE jobs SET status='queued',error_message=:message,available_at=CURRENT_TIMESTAMP,started_at=NULL,finished_at=NULL
+             WHERE id=:id AND status='running'"
+        )->execute(['message' => mb_substr($message, 0, 2000), 'id' => $jobId]);
     }
 
     public function fail(int $jobId, string $message): void
@@ -173,5 +195,17 @@ final class JobRepository
     public function markReconciled(int $jobId): void
     {
         $this->pdo->prepare("UPDATE jobs SET result=JSON_OBJECT('cleanup_reconciled',true,'reconciled_at',UTC_TIMESTAMP()) WHERE id=:id")->execute(['id' => $jobId]);
+    }
+
+    private function managedProvisioningStatus(int $jobId): ?string
+    {
+        $statement = $this->pdo->prepare(
+            "SELECT vp.status FROM jobs j
+             JOIN vm_provisioning vp ON vp.job_id=j.id
+             WHERE j.id=:id AND JSON_UNQUOTE(JSON_EXTRACT(j.payload,'$.managed_provisioning'))='true' LIMIT 1"
+        );
+        $statement->execute(['id' => $jobId]);
+        $status = $statement->fetchColumn();
+        return is_string($status) ? $status : null;
     }
 }
