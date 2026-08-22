@@ -39,7 +39,10 @@ final class ProvisioningStateRepository
     /** @return array<string,mixed> */
     public function forJob(int $jobId): array
     {
-        $statement = $this->pdo->prepare('SELECT * FROM vm_provisioning WHERE job_id=:job LIMIT 1');
+        $statement = $this->pdo->prepare(
+            'SELECT vp.*,COALESCE(vp.virtual_machine_id,j.virtual_machine_id) AS virtual_machine_id
+             FROM vm_provisioning vp JOIN jobs j ON j.id=vp.job_id WHERE vp.job_id=:job LIMIT 1'
+        );
         $statement->execute(['job' => $jobId]);
         $state = $statement->fetch();
         if (!is_array($state)) {
