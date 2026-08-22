@@ -8,14 +8,30 @@
     "password": "CHANGE_ME_DATABASE_PASSWORD",
     "confirm_existing": false
   },
-  "administrator": {
-    "username": "admin",
+  "panel": {
+    "login": "admin",
     "email": "admin@example.com",
     "password": "ChangeMeStrong123!",
     "resume_existing": false
   },
+  "dns": {
+    "server_ip": "192.168.1.53",
+    "api_token": "CHANGE_ME_DNS_API_TOKEN"
+  },
   "proxmox": {
-    "skip": true
+    "skip": false,
+    "name": "Primary Proxmox",
+    "hostname": "pve.example.com",
+    "port": 8006,
+    "realm": "pam",
+    "login": "root@pam",
+    "password": "CHANGE_ME_PROXMOX_PASSWORD",
+    "token_name": "cloudportal",
+    "token": "CHANGE_ME_PROXMOX_TOKEN_SECRET",
+    "verify_ssl": true
+  },
+  "hostname_generator": {
+    "pattern": "vm-{project}-{counter}"
   },
   "portal": {
     "name": "Algen Cloud Portal",

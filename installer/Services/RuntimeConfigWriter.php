@@ -4,6 +4,8 @@ declare(strict_types=1);
 
 namespace CloudPortal\Installer\Services;
 
+use CloudPortal\Security\Crypto;
+
 final class RuntimeConfigWriter
 {
     public function __construct(private readonly string $root)
@@ -34,6 +36,31 @@ final class RuntimeConfigWriter
                 'login_attempts' => 5, 'login_window_seconds' => 900, 'lockout_seconds' => 900,
             ],
         ];
+
+        $bootstrap = $state['bootstrap'] ?? [];
+        if (is_array($bootstrap)) {
+            $crypto = new Crypto((string) $state['security']['encryption_key']);
+            $dns = $bootstrap['dns'] ?? [];
+            if (is_array($dns) && $dns !== []) {
+                $config['dns'] = [
+                    'server_ip' => (string) ($dns['server_ip'] ?? ''),
+                    'api_token_encrypted' => $crypto->encrypt((string) ($dns['api_token'] ?? '')),
+                ];
+            }
+            $proxmoxCredentials = $bootstrap['proxmox_credentials'] ?? [];
+            if (is_array($proxmoxCredentials) && $proxmoxCredentials !== []) {
+                $password = (string) ($proxmoxCredentials['password'] ?? '');
+                $config['proxmox_credentials'] = [
+                    'login' => (string) ($proxmoxCredentials['login'] ?? ''),
+                    'password_encrypted' => $password === '' ? '' : $crypto->encrypt($password),
+                ];
+            }
+            $hostnameGenerator = $bootstrap['hostname_generator'] ?? [];
+            if (is_array($hostnameGenerator) && isset($hostnameGenerator['pattern'])) {
+                $config['hostname_generator'] = ['pattern' => (string) $hostnameGenerator['pattern']];
+            }
+        }
+
         $target = $this->path();
         if (is_file($target)) {
             $existing = require $target;
@@ -99,6 +126,19 @@ final class RuntimeConfigWriter
         foreach (['key' => $config['app']['key'] ?? '', 'encryption_key' => $config['security']['encryption_key'] ?? '', 'csrf_secret' => $config['security']['csrf_secret'] ?? ''] as $name => $encoded) {
             $decoded = base64_decode((string) $encoded, true);
             if ($decoded === false || strlen($decoded) !== 32) throw new \RuntimeException("Runtime security key {$name} is invalid.");
+        }
+
+        $crypto = new Crypto((string) $config['security']['encryption_key']);
+        foreach ([
+            'dns.api_token_encrypted' => $config['dns']['api_token_encrypted'] ?? '',
+            'proxmox_credentials.password_encrypted' => $config['proxmox_credentials']['password_encrypted'] ?? '',
+        ] as $name => $encrypted) {
+            if ($encrypted === '') continue;
+            try {
+                if ($crypto->decrypt((string) $encrypted) === '') throw new \RuntimeException('empty decrypted value');
+            } catch (\Throwable $exception) {
+                throw new \RuntimeException("Runtime secret {$name} is invalid.", 0, $exception);
+            }
         }
     }
 
