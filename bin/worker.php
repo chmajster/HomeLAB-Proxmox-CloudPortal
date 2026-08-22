@@ -5,10 +5,12 @@ declare(strict_types=1);
 
 use CloudPortal\Application;
 use CloudPortal\Database\Database;
+use CloudPortal\Services\DNS\DnsApiClient;
 use CloudPortal\Services\Notifications\WebhookService;
 use CloudPortal\Services\Observability\WorkerHeartbeatService;
 use CloudPortal\Services\Provisioning\AdvancedJobProcessor;
 use CloudPortal\Services\Provisioning\JobRepository;
+use CloudPortal\Services\Provisioning\ManagedCreateProcessor;
 use CloudPortal\Services\Provisioning\PlacedCreateProcessor;
 use CloudPortal\Services\Provisioning\ProxmoxProvisioner;
 use CloudPortal\Services\Provisioning\VmIdentityJobProcessor;
@@ -29,6 +31,30 @@ $provisioner = new ProxmoxProvisioner($database, $clients, $jobs, $app->audit())
 $advanced = new AdvancedJobProcessor($database, $clients, $jobs, $app->audit());
 $placedCreate = new PlacedCreateProcessor($database, $clients, $jobs, $app->audit());
 $identity = new VmIdentityJobProcessor($database, $clients, $jobs, $app->audit());
+$managedCreate = null;
+$dnsServer = trim((string) $app->config->get('dns.server_ip', ''));
+$dnsTokenEncrypted = trim((string) $app->config->get('dns.api_token_encrypted', ''));
+if ($dnsServer !== '' && $dnsTokenEncrypted !== '') {
+    $managedCreate = new ManagedCreateProcessor(
+        $database,
+        $clients,
+        $jobs,
+        $app->audit(),
+        new DnsApiClient(
+            $dnsServer,
+            $app->crypto()->decrypt($dnsTokenEncrypted),
+            (int) $app->config->get('dns.port', 81),
+            (string) $app->config->get('dns.scheme', 'http'),
+        ),
+        $provisioner,
+        $placedCreate,
+        ($zone = trim((string) $app->config->get('dns.forward_zone', ''))) === '' ? null : $zone,
+        (string) $app->config->get('provisioning.vm_setup_command', '/usr/local/sbin/vm-setup.sh'),
+        (string) $app->config->get('provisioning.puppet_command', 'puppet agent --test'),
+        (int) $app->config->get('provisioning.guest_agent_timeout', 300),
+        (int) $app->config->get('provisioning.guest_command_timeout', 900),
+    );
+}
 $heartbeat = new WorkerHeartbeatService($database->pdo(), (string) ($argv[0] ?? 'cloud-worker') . '@' . (gethostname() ?: 'unknown'), Application::VERSION);
 $webhooks = new WebhookService($database->pdo(), $app->crypto());
 $heartbeat->beat();
@@ -85,7 +111,9 @@ do {
         continue;
     }
     try {
-        if ((string) $job['type'] === 'vm.create.placed') {
+        if ($managedCreate instanceof ManagedCreateProcessor && $managedCreate->supports($job)) {
+            $managedCreate->process($job);
+        } elseif ((string) $job['type'] === 'vm.create.placed') {
             $placedCreate->process($job);
         } elseif ($identity->supports((string) $job['type'])) {
             $identity->process($job);
