@@ -48,6 +48,7 @@ final class ManagedCreateProcessor
             $provisioning = $state->forJob($jobId);
             $hostname = (string) $provisioning['hostname'];
             $ipAddress = (string) $provisioning['ip_address'];
+            $vmId = (int) ($provisioning['virtual_machine_id'] ?? 0);
 
             $state->begin($jobId, 4, 'Create A');
             $dns = $this->dns->ensureVmRecords($hostname, $ipAddress, $this->forwardZone);
@@ -56,8 +57,8 @@ final class ManagedCreateProcessor
                 $dns['fqdn'],
                 $dns['forward_zone'],
                 $dns['reverse_zone'],
-                $dns['a_record_id'],
-                $dns['ptr_record_id'],
+                $dns['a_record_id'] > 0 ? $dns['a_record_id'] : null,
+                $dns['ptr_record_id'] > 0 ? $dns['ptr_record_id'] : null,
             );
             $state->step($jobId, 4, 'Create A', $dns['fqdn'] . ' -> ' . $ipAddress);
             $state->step($jobId, 5, 'Create PTR', $ipAddress . ' -> ' . $dns['fqdn']);
@@ -66,31 +67,36 @@ final class ManagedCreateProcessor
             $this->dns->verifyVmRecords($dns['fqdn'], $ipAddress);
             $state->step($jobId, 6, 'Verify DNS', 'A and PTR verified against HomeLAB-DNS');
 
-            $state->begin($jobId, 7, 'Create VM');
-            if ((string) $job['type'] === 'vm.create.placed') {
-                $this->placedCreate->process($job);
-            } else {
-                $this->localCreate->process($job);
-            }
-
             $final = $this->jobs->find((string) $job['public_id']);
             if (!is_array($final)) {
-                throw new \RuntimeException('Provisioning job disappeared after Proxmox create.');
-            }
-            if ((string) $final['status'] === 'queued') {
-                return;
-            }
-            if ((string) $final['status'] !== 'completed') {
-                $message = (string) ($final['error_message'] ?? 'Proxmox VM creation failed.');
-                $this->cleanupPreVmFailure($jobId, $job, $message);
-                return;
+                throw new \RuntimeException('Provisioning job disappeared before Proxmox create.');
             }
 
-            $vmId = (int) ($final['virtual_machine_id'] ?? 0);
+            $state->begin($jobId, 7, 'Create VM');
             if ($vmId <= 0) {
-                throw new \RuntimeException('Completed VM create job has no virtual machine ID.');
+                if ((string) $job['type'] === 'vm.create.placed') {
+                    $this->placedCreate->process($job);
+                } else {
+                    $this->localCreate->process($job);
+                }
+
+                $final = $this->jobs->find((string) $job['public_id']);
+                if (!is_array($final)) {
+                    throw new \RuntimeException('Provisioning job disappeared after Proxmox create.');
+                }
+                if ((string) $final['status'] === 'queued') {
+                    return;
+                }
+                $vmId = (int) ($final['virtual_machine_id'] ?? 0);
+                if ($vmId <= 0) {
+                    $message = (string) ($final['error_message'] ?? 'Proxmox VM creation failed.');
+                    $this->cleanupPreVmFailure($jobId, $job, $message);
+                    return;
+                }
+                $state->step($jobId, 7, 'Create VM', 'VM ID ' . $vmId);
+            } else {
+                $state->step($jobId, 7, 'Create VM', 'VM ID ' . $vmId . ' already exists; provisioning resumed');
             }
-            $state->step($jobId, 7, 'Create VM', 'VM ID ' . $vmId);
             $state->creating($jobId, $vmId);
 
             $vm = $this->vm($vmId);
@@ -118,7 +124,8 @@ final class ManagedCreateProcessor
 
             $state->ready($jobId);
             $ready = $state->forJob($jobId);
-            $result = is_array($final['result'] ?? null) ? $final['result'] : [];
+            $latest = $this->jobs->find((string) $job['public_id']);
+            $result = is_array($latest['result'] ?? null) ? $latest['result'] : (is_array($final['result'] ?? null) ? $final['result'] : []);
             $result['virtual_machine_id'] = $vmId;
             $result['hostname'] = (string) $ready['hostname'];
             $result['fqdn'] = (string) $ready['fqdn'];
