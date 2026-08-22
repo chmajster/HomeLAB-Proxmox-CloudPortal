@@ -14,6 +14,7 @@ use CloudPortal\Controllers\ResourceController;
 use CloudPortal\Controllers\SystemController;
 use CloudPortal\Controllers\TemplateAdminController;
 use CloudPortal\Controllers\VmController;
+use CloudPortal\Controllers\VmIdentityController;
 use CloudPortal\Controllers\WebhookAdminController;
 use CloudPortal\Http\Router;
 
@@ -22,6 +23,7 @@ return static function (Router $router, Application $app): void {
     $dashboard = new DashboardController($app);
     $vms = new VmController($app);
     $advancedVms = new AdvancedVmController($app);
+    $vmIdentity = new VmIdentityController($app);
     $jobs = new JobController($app);
     $catalog = new CatalogController($app);
     $resources = new ResourceController($app);
@@ -48,6 +50,7 @@ return static function (Router $router, Application $app): void {
     $router->add('POST', '/api/v1/vms/{id}/clone', [$advancedVms, 'cloneVm']);
     $router->add('POST', '/api/v1/vms/{id}/resize', [$vms, 'resize']);
     $router->add('PATCH', '/api/v1/vms/{id}/configuration', [$advancedVms, 'reconfigure']);
+    $router->add('PATCH', '/api/v1/vms/{id}/name', [$vmIdentity, 'rename']);
     $router->add('POST', '/api/v1/vms/{id}/disks', [$advancedVms, 'attachDisk']);
     $router->add('DELETE', '/api/v1/vms/{id}/disks/{device}', [$advancedVms, 'detachDisk']);
     $router->add('PUT', '/api/v1/vms/{id}/nics/{device}', [$advancedVms, 'upsertNic']);
