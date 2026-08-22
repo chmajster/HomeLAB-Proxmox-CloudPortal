@@ -25,9 +25,12 @@ final class VmController
         $user = $this->app->auth()->requireUser();
         $this->app->auth()->requirePermission('vm.view');
         $sql = "SELECT vm.id, vm.connection_id, vm.name, vm.vmid, vm.node_name, vm.status, vm.vcpu, vm.ram_mb,
-                       vm.disk_gb, vm.created_at, p.name AS project_name, u.username AS owner_name, ip.address AS ip_address
+                       vm.disk_gb, vm.created_at, p.name AS project_name, u.username AS owner_name, ip.address AS ip_address,
+                       vp.status AS provisioning_status, vp.current_step AS provisioning_step, vp.current_step_name AS provisioning_step_name,
+                       vp.fqdn AS fqdn
                 FROM virtual_machines vm JOIN projects p ON p.id = vm.project_id
                 JOIN users u ON u.id = vm.owner_user_id LEFT JOIN ip_addresses ip ON ip.virtual_machine_id = vm.id
+                LEFT JOIN vm_provisioning vp ON vp.virtual_machine_id = vm.id
                 WHERE vm.status <> 'deleted'";
         $params = [];
         if (!$this->app->auth()->isAdmin()) {
@@ -50,7 +53,15 @@ final class VmController
         $snapshots->execute(['vm' => $vm['id']]);
         $jobs = $this->app->pdo()->prepare('SELECT public_id, type, status, error_message, created_at, finished_at FROM jobs WHERE virtual_machine_id = :vm ORDER BY created_at DESC LIMIT 20');
         $jobs->execute(['vm' => $vm['id']]);
-        return Response::json(['data' => ['vm' => $vm, 'snapshots' => $snapshots->fetchAll(), 'jobs' => $jobs->fetchAll()]]);
+        $provisioning = $this->app->pdo()->prepare('SELECT status,current_step,current_step_name,hostname,fqdn,ip_address,last_error,ready_at,created_at,updated_at FROM vm_provisioning WHERE virtual_machine_id=:vm ORDER BY id DESC LIMIT 1');
+        $provisioning->execute(['vm' => $vm['id']]);
+        $provisioningData = $provisioning->fetch();
+        return Response::json(['data' => [
+            'vm' => $vm,
+            'provisioning' => is_array($provisioningData) ? $provisioningData : null,
+            'snapshots' => $snapshots->fetchAll(),
+            'jobs' => $jobs->fetchAll(),
+        ]]);
     }
 
     public function create(Request $request): Response
@@ -58,7 +69,7 @@ final class VmController
         $this->app->csrf->verify($request);
         $user = $this->app->auth()->requireUser();
         $this->app->auth()->requirePermission('vm.create');
-        $job = (new ProvisioningRequestService(new Database($this->app->config)))->createVm((int) $user['id'], $this->app->auth()->isAdmin(), $request->all());
+        $job = (new ProvisioningRequestService(new Database($this->app->config), $this->app->config))->createVm((int) $user['id'], $this->app->auth()->isAdmin(), $request->all());
         $this->app->audit()->log((int) $user['id'], $request->ip(), 'vm.create.requested', 'success', 'job', $job);
         return Response::json(['data' => ['job_id' => $job]], 202);
     }
