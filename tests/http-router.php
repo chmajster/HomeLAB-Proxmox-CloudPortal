@@ -3,9 +3,23 @@
 declare(strict_types=1);
 
 $path = parse_url((string) ($_SERVER['REQUEST_URI'] ?? '/'), PHP_URL_PATH);
-$file = dirname(__DIR__) . '/public' . $path;
+$root = dirname(__DIR__);
+$file = $root . '/public' . $path;
 if ($path !== '/' && is_file($file)) {
-    return false;
+    $extension = strtolower(pathinfo($file, PATHINFO_EXTENSION));
+    $contentType = match ($extension) {
+        'css' => 'text/css; charset=utf-8',
+        'js' => 'application/javascript; charset=utf-8',
+        'svg' => 'image/svg+xml',
+        'png' => 'image/png',
+        'jpg', 'jpeg' => 'image/jpeg',
+        'webp' => 'image/webp',
+        default => 'application/octet-stream',
+    };
+    header('Content-Type: ' . $contentType);
+    header('Cache-Control: no-store');
+    readfile($file);
+    return;
 }
 if ($path === '/api/v1/dashboard') {
     header('Content-Type: application/json; charset=utf-8');
@@ -30,7 +44,6 @@ if ($path === '/api/v1/dashboard') {
     return;
 }
 if ($path === '/__visual') {
-    $root = dirname(__DIR__);
     require is_file($root . '/vendor/autoload.php') ? $root . '/vendor/autoload.php' : $root . '/autoload.php';
     $view = new \CloudPortal\Support\View($root . '/resources/views', ['basePath' => '']);
     echo $view->render('pages/portal', [
@@ -43,4 +56,4 @@ if ($path === '/__visual') {
     ]);
     return;
 }
-require dirname(__DIR__) . '/public/index.php';
+require $root . '/public/index.php';
