@@ -62,7 +62,11 @@ $heartbeat->beat();
 foreach ($jobs->staleRunning() as $staleJob) {
     if (!$jobs->acquireExecutionLock((string) $staleJob['public_id'])) continue;
     try {
-        if ((string) $staleJob['type'] === 'vm.create.placed' || $advanced->supports((string) $staleJob['type']) || $identity->supports((string) $staleJob['type'])) {
+        $managedWithCreatedVm = ($staleJob['payload']['managed_provisioning'] ?? false) === true
+            && !empty($staleJob['virtual_machine_id']);
+        if ($managedWithCreatedVm) {
+            $jobs->requeueInterrupted((int) $staleJob['id'], 'Worker interrupted after VM creation; managed provisioning will resume from the persisted VM.');
+        } elseif ((string) $staleJob['type'] === 'vm.create.placed' || $advanced->supports((string) $staleJob['type']) || $identity->supports((string) $staleJob['type'])) {
             $jobs->fail((int) $staleJob['id'], 'Worker interrupted; operation was returned to the retry queue.');
         } else {
             $provisioner->recoverStale($staleJob);
