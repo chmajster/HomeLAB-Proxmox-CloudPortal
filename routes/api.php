@@ -9,6 +9,7 @@ use CloudPortal\Controllers\AuthController;
 use CloudPortal\Controllers\CatalogController;
 use CloudPortal\Controllers\DashboardController;
 use CloudPortal\Controllers\JobController;
+use CloudPortal\Controllers\PlacementAdminController;
 use CloudPortal\Controllers\ResourceController;
 use CloudPortal\Controllers\SystemController;
 use CloudPortal\Controllers\TemplateAdminController;
@@ -28,6 +29,7 @@ return static function (Router $router, Application $app): void {
     $templateAdmin = new TemplateAdminController($app);
     $system = new SystemController($app);
     $webhooks = new WebhookAdminController($app);
+    $placementAdmin = new PlacementAdminController($app);
 
     $router->add('GET', '/healthz', [$system, 'health']);
     $router->add('GET', '/readyz', [$system, 'ready']);
@@ -64,6 +66,8 @@ return static function (Router $router, Application $app): void {
     $router->add('GET', '/api/v1/admin/system/health', [$system, 'adminHealth']);
     $router->add('POST', '/api/v1/admin/jobs/{jobId}/retry', [$system, 'retryJob']);
     $router->add('GET', '/api/v1/admin/proxmox/{connectionId}/placement', [$system, 'placement']);
+    $router->add('GET', '/api/v1/admin/proxmox/{connectionId}/nodes/placement', [$placementAdmin, 'nodes']);
+    $router->add('PATCH', '/api/v1/admin/proxmox/{connectionId}/nodes/{node}/placement', [$placementAdmin, 'updateNode']);
     $router->add('GET', '/api/v1/admin/webhooks', [$webhooks, 'index']);
     $router->add('POST', '/api/v1/admin/webhooks', [$webhooks, 'create']);
     $router->add('PATCH', '/api/v1/admin/webhooks/{id}', [$webhooks, 'update']);

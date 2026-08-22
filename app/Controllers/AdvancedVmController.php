@@ -8,6 +8,7 @@ use CloudPortal\Application;
 use CloudPortal\Database\Database;
 use CloudPortal\Http\Request;
 use CloudPortal\Http\Response;
+use CloudPortal\Services\Backup\BackupPolicyService;
 use CloudPortal\Services\Provisioning\AdvancedVmOperationService;
 use CloudPortal\Services\Provisioning\VmOperationService;
 
@@ -21,43 +22,38 @@ final class AdvancedVmController
     {
         $this->mutating($request, 'vm.modify');
         $user = $this->app->auth()->requireUser();
-        $job = $this->ops()->rollbackSnapshot((int) $request->param('id'), $request->param('snapshotName'), (int) $user['id'], $this->app->auth()->isAdmin());
-        return $this->accepted($job);
+        return $this->accepted($this->ops()->rollbackSnapshot((int) $request->param('id'), $request->param('snapshotName'), (int) $user['id'], $this->app->auth()->isAdmin()));
     }
 
     public function cloneVm(Request $request): Response
     {
         $this->mutating($request, 'vm.create');
         $user = $this->app->auth()->requireUser();
-        $job = $this->ops()->cloneVm((int) $request->param('id'), (int) $user['id'], $this->app->auth()->isAdmin(), $request->all());
-        return $this->accepted($job);
+        return $this->accepted($this->ops()->cloneVm((int) $request->param('id'), (int) $user['id'], $this->app->auth()->isAdmin(), $request->all()));
     }
 
     public function reconfigure(Request $request): Response
     {
         $this->mutating($request, 'vm.modify');
         $user = $this->app->auth()->requireUser();
-        $job = $this->ops()->reconfigure((int) $request->param('id'), (int) $user['id'], $this->app->auth()->isAdmin(), $request->all());
-        return $this->accepted($job);
+        return $this->accepted($this->ops()->reconfigure((int) $request->param('id'), (int) $user['id'], $this->app->auth()->isAdmin(), $request->all()));
     }
 
     public function attachDisk(Request $request): Response
     {
         $this->mutating($request, 'vm.modify');
         $user = $this->app->auth()->requireUser();
-        $job = $this->ops()->attachDisk(
+        return $this->accepted($this->ops()->attachDisk(
             (int) $request->param('id'), (int) $user['id'], $this->app->auth()->isAdmin(),
             trim((string) $request->input('device')), trim((string) $request->input('storage')), (int) $request->input('size_gb')
-        );
-        return $this->accepted($job);
+        ));
     }
 
     public function detachDisk(Request $request): Response
     {
         $this->mutating($request, 'vm.modify');
         $user = $this->app->auth()->requireUser();
-        $job = $this->ops()->detachDisk((int) $request->param('id'), (int) $user['id'], $this->app->auth()->isAdmin(), $request->param('device'));
-        return $this->accepted($job);
+        return $this->accepted($this->ops()->detachDisk((int) $request->param('id'), (int) $user['id'], $this->app->auth()->isAdmin(), $request->param('device')));
     }
 
     public function upsertNic(Request $request): Response
@@ -65,27 +61,24 @@ final class AdvancedVmController
         $this->mutating($request, 'vm.modify');
         $user = $this->app->auth()->requireUser();
         $vlan = $request->input('vlan_id');
-        $job = $this->ops()->upsertNic(
+        return $this->accepted($this->ops()->upsertNic(
             (int) $request->param('id'), (int) $user['id'], $this->app->auth()->isAdmin(), $request->param('device'),
             trim((string) $request->input('bridge')), $vlan === null || $vlan === '' ? null : (int) $vlan
-        );
-        return $this->accepted($job);
+        ));
     }
 
     public function deleteNic(Request $request): Response
     {
         $this->mutating($request, 'vm.modify');
         $user = $this->app->auth()->requireUser();
-        $job = $this->ops()->deleteNic((int) $request->param('id'), (int) $user['id'], $this->app->auth()->isAdmin(), $request->param('device'));
-        return $this->accepted($job);
+        return $this->accepted($this->ops()->deleteNic((int) $request->param('id'), (int) $user['id'], $this->app->auth()->isAdmin(), $request->param('device')));
     }
 
     public function migrate(Request $request): Response
     {
         $this->mutating($request, 'vm.modify');
         $user = $this->app->auth()->requireUser();
-        $job = $this->ops()->migrate((int) $request->param('id'), (int) $user['id'], $this->app->auth()->isAdmin(), $request->input('target_node') === null ? null : (string) $request->input('target_node'));
-        return $this->accepted($job);
+        return $this->accepted($this->ops()->migrate((int) $request->param('id'), (int) $user['id'], $this->app->auth()->isAdmin(), $request->input('target_node') === null ? null : (string) $request->input('target_node')));
     }
 
     public function backups(Request $request): Response
@@ -102,19 +95,21 @@ final class AdvancedVmController
     {
         $this->mutating($request, 'vm.modify');
         $user = $this->app->auth()->requireUser();
-        $job = $this->ops()->createBackup(
-            (int) $request->param('id'), (int) $user['id'], $this->app->auth()->isAdmin(),
-            trim((string) $request->input('storage')), (string) $request->input('mode', 'snapshot'), (string) $request->input('compression', 'zstd')
-        );
-        return $this->accepted($job);
+        $vmId = (int) $request->param('id');
+        $storage = trim((string) $request->input('storage'));
+        $database = new Database($this->app->config);
+        (new BackupPolicyService($database))->assertCreateAllowed($vmId, (int) $user['id'], $this->app->auth()->isAdmin(), $storage);
+        return $this->accepted((new AdvancedVmOperationService($database))->createBackup(
+            $vmId, (int) $user['id'], $this->app->auth()->isAdmin(), $storage,
+            (string) $request->input('mode', 'snapshot'), (string) $request->input('compression', 'zstd')
+        ));
     }
 
     public function restoreBackup(Request $request): Response
     {
         $this->mutating($request, 'vm.modify');
         $user = $this->app->auth()->requireUser();
-        $job = $this->ops()->restoreBackup((int) $request->param('backupId'), (int) $user['id'], $this->app->auth()->isAdmin(), $request->all());
-        return $this->accepted($job);
+        return $this->accepted($this->ops()->restoreBackup((int) $request->param('backupId'), (int) $user['id'], $this->app->auth()->isAdmin(), $request->all()));
     }
 
     private function mutating(Request $request, string $permission): void

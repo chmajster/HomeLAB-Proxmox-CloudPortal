@@ -14,7 +14,7 @@ final class PlatformOperationsTest extends MariaDbTestCase
     {
         $fixture = $this->fixture();
         $jobs = new JobRepository(self::$pdo);
-        $publicId = $jobs->enqueue('test.operation', $fixture['user'], $fixture['project'], null, [], null, null, 2);
+        $publicId = $jobs->enqueue('vm.reconfigure', $fixture['user'], $fixture['project'], null, [], null, null, 2);
         $first = $jobs->claimNext();
         self::assertIsArray($first);
         self::assertSame(1, $first['attempts']);
@@ -29,6 +29,17 @@ final class PlatformOperationsTest extends MariaDbTestCase
         $retried = $jobs->find($publicId);
         self::assertSame('queued', $retried['status']);
         self::assertSame(0, (int) $retried['attempts']);
+    }
+
+    public function testNonRetryableCreateFailsWithoutDuplicateRisk(): void
+    {
+        $fixture = $this->fixture();
+        $jobs = new JobRepository(self::$pdo);
+        $id = $jobs->enqueue('vm.create', $fixture['user'], $fixture['project'], null, [], '00000000-0000-4000-8000-000000000001', null, 3);
+        $job = $jobs->claimNext();
+        self::assertIsArray($job);
+        $jobs->fail((int) $job['id'], 'unsafe to retry automatically');
+        self::assertSame('failed', $jobs->find($id)['status']);
     }
 
     public function testPlacementSkipsMaintenanceAndPrefersHealthyCapacity(): void
