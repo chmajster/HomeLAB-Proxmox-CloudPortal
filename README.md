@@ -27,6 +27,87 @@ To wszystko dla podstawowej instalacji. Nie trzeba:
 - wykonywać SQL w celu utworzenia administratora,
 - ustawiać flagi `installed=true`.
 
+## Automatyczna instalacja z `install.json`
+
+Jeżeli w katalogu głównym aplikacji znajduje się plik `install.json`, wejście na
+`/install` automatycznie uruchamia instalację bez formularzy. Gdy pliku nie ma,
+działa dotychczasowy kreator WWW.
+
+Najprościej skopiować [`install.example.json`](install.example.json) do
+`install.json`, uzupełnić dane i otworzyć portal w przeglądarce:
+
+```bash
+cp install.example.json install.json
+```
+
+Przykładowa struktura:
+
+```json
+{
+  "database": {
+    "driver": "mysql",
+    "host": "127.0.0.1",
+    "port": 3306,
+    "name": "cloudportal",
+    "user": "cloudportal",
+    "password": "CHANGE_ME_DATABASE_PASSWORD",
+    "confirm_existing": false
+  },
+  "administrator": {
+    "username": "admin",
+    "email": "admin@example.com",
+    "password": "ChangeMeStrong123!",
+    "resume_existing": false
+  },
+  "proxmox": {
+    "skip": true
+  },
+  "portal": {
+    "name": "Algen Cloud Portal",
+    "url": "https://cloud.example.com",
+    "timezone": "Europe/Warsaw",
+    "locale": "pl",
+    "session_lifetime": 7200
+  }
+}
+```
+
+Sekcje `database` i `administrator` są wymagane. `portal` jest opcjonalny i ma
+bezpieczne wartości domyślne; jeśli nie podano `portal.url`, instalator użyje
+adresu wykrytego z bieżącego żądania. Brak sekcji `proxmox` oznacza pominięcie
+konfiguracji Proxmox. Aby skonfigurować Proxmox od razu, użyj np.:
+
+```json
+"proxmox": {
+  "skip": false,
+  "name": "Primary Proxmox",
+  "hostname": "pve.example.com",
+  "port": 8006,
+  "realm": "pam",
+  "token_id": "root@pam!cloudportal",
+  "token_secret": "TOKEN_SECRET",
+  "verify_ssl": true
+}
+```
+
+Instalator najpierw parsuje i waliduje wszystkie sekcje JSON, zanim zmodyfikuje
+bazę lub zapisze konfigurację. Następnie wykonuje te same testy bazy, schematu,
+administratora, Proxmox i finalizacji co kreator WWW. Jeśli baza nie jest pusta,
+`database.confirm_existing` musi być ustawione jawnie na `true`. Wznowienie na
+istniejącym administratorze wymaga `administrator.resume_existing=true` oraz
+identycznych danych uwierzytelniających.
+
+`install.json` może zawierać hasła i token API, dlatego:
+
+- plik jest ignorowany przez Git,
+- Apache blokuje dostęp HTTP do `install.json` i `install.*.json`,
+- po udanej instalacji aplikacja próbuje usunąć `install.json`, a jeśli usunięcie
+  nie jest możliwe — wyczyścić jego zawartość,
+- przy błędzie plik pozostaje na miejscu, aby można było poprawić dane i ponowić
+  wejście na `/install`,
+- szczegóły błędu są zapisywane do `storage/logs/installer.log` z redakcją
+  sekretów.
+
 Dołączony [`.htaccess`](.htaccess) kieruje ruch do front controllera, udostępnia
 lokalne assety i blokuje dostęp HTTP do konfiguracji, kodu, schematu, logów,
 testów oraz katalogu `public`. Instalacja działa również po wypakowaniu do
