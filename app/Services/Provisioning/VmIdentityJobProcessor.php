@@ -70,25 +70,50 @@ final class VmIdentityJobProcessor
             throw new \RuntimeException('Virtual machine no longer exists.');
         }
 
-        if ((string) $vm['name'] !== $name) {
+        $previousName = (string) $vm['name'];
+        if ($previousName !== $name) {
+            $this->assertNameAvailable((int) $vm['project_id'], $vmId, $name);
+
             $client = $this->clients->forConnection((int) $vm['connection_id']);
             $path = '/nodes/' . rawurlencode((string) $vm['node_name']) . '/qemu/' . (int) $vm['vmid'] . '/config';
             $client->put($path, ['name' => $name]);
 
-            $this->database->transaction(function (PDO $pdo) use ($vmId, $vm, $name): void {
-                $duplicate = $pdo->prepare("SELECT id FROM virtual_machines WHERE project_id=:project AND name=:name AND status<>'deleted' AND id<>:vm LIMIT 1 FOR UPDATE");
-                $duplicate->execute(['project' => $vm['project_id'], 'name' => $name, 'vm' => $vmId]);
-                if ($duplicate->fetchColumn()) {
-                    throw new \RuntimeException('A VM with this name already exists in the project.');
+            try {
+                $this->database->transaction(function (PDO $pdo) use ($vmId, $vm, $name): void {
+                    $duplicate = $pdo->prepare("SELECT id FROM virtual_machines WHERE project_id=:project AND name=:name AND status<>'deleted' AND id<>:vm LIMIT 1 FOR UPDATE");
+                    $duplicate->execute(['project' => $vm['project_id'], 'name' => $name, 'vm' => $vmId]);
+                    if ($duplicate->fetchColumn()) {
+                        throw new \RuntimeException('A VM with this name already exists in the project.');
+                    }
+                    $pdo->prepare('UPDATE virtual_machines SET name=:name,last_error=NULL WHERE id=:id')->execute(['name' => $name, 'id' => $vmId]);
+                });
+            } catch (Throwable $exception) {
+                try {
+                    $client->put($path, ['name' => $previousName]);
+                } catch (Throwable $rollbackException) {
+                    throw new \RuntimeException(
+                        $exception->getMessage() . ' Proxmox rename rollback also failed: ' . $rollbackException->getMessage(),
+                        0,
+                        $exception,
+                    );
                 }
-                $pdo->prepare('UPDATE virtual_machines SET name=:name,last_error=NULL WHERE id=:id')->execute(['name' => $name, 'id' => $vmId]);
-            });
+                throw $exception;
+            }
         }
 
         return [
             'virtual_machine_id' => $vmId,
-            'previous_name' => (string) ($job['payload']['previous_name'] ?? $vm['name']),
+            'previous_name' => (string) ($job['payload']['previous_name'] ?? $previousName),
             'name' => $name,
         ];
+    }
+
+    private function assertNameAvailable(int $projectId, int $vmId, string $name): void
+    {
+        $statement = $this->database->pdo()->prepare("SELECT 1 FROM virtual_machines WHERE project_id=:project AND name=:name AND status<>'deleted' AND id<>:vm LIMIT 1");
+        $statement->execute(['project' => $projectId, 'name' => $name, 'vm' => $vmId]);
+        if ($statement->fetchColumn()) {
+            throw new \RuntimeException('A VM with this name already exists in the project.');
+        }
     }
 }
