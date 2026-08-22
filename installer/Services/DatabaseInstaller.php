@@ -9,13 +9,14 @@ use PDO;
 
 final class DatabaseInstaller
 {
-    public const SCHEMA_VERSION = '1.1.0';
+    public const SCHEMA_VERSION = '1.2.0';
     public const REQUIRED_TABLES = [
         'schema_migrations', 'roles', 'permissions', 'role_permissions', 'users', 'projects', 'project_users',
         'proxmox_connections', 'proxmox_nodes', 'resource_plans', 'vm_templates', 'networks', 'project_networks',
         'storages', 'project_storages', 'virtual_machines', 'quotas', 'quota_reservations', 'quota_template_limits',
         'ip_addresses', 'jobs', 'snapshots', 'vm_disks', 'vm_nics', 'backups', 'worker_heartbeats', 'webhooks',
         'webhook_deliveries', 'audit_logs', 'settings', 'password_reset_tokens', 'login_attempts',
+        'hostname_sequences', 'vm_provisioning', 'vm_provisioning_events',
     ];
 
     public function __construct(private readonly string $schemaPath)
