@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace CloudPortal\Tests\Integration;
 
+use CloudPortal\Database\MigrationService;
 use PDO;
 use PHPUnit\Framework\TestCase;
 
@@ -25,6 +26,7 @@ abstract class MariaDbTestCase extends TestCase
         ]);
         self::$pdo->exec("SET SESSION time_zone = '+00:00'");
         self::$pdo->exec((string) file_get_contents(dirname(__DIR__, 2) . '/database/schema.sql'));
+        (new MigrationService(self::$pdo, dirname(__DIR__, 2) . '/database/migrations'))->apply();
     }
 
     protected function setUp(): void

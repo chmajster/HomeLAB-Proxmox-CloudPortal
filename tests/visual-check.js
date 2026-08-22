@@ -1,4 +1,4 @@
-const { chromium } = require('playwright');
+const { chromium } = require('@playwright/test');
 
 (async () => {
   const browser = await chromium.launch({headless: true});
@@ -6,7 +6,7 @@ const { chromium } = require('playwright');
   const failures = [];
   for (const target of [
     {name: 'installer', url: `${base}/install`},
-    {name: 'login', url: `${base}/login`},
+    {name: 'portal', url: `${base}/__visual`},
   ]) {
     for (const width of [320, 390, 768, 1440, 1920]) {
       const page = await browser.newPage({viewport: {width, height: 900}, deviceScaleFactor: 1});
