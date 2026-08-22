@@ -1,16 +1,13 @@
-ALTER TABLE proxmox_nodes
-    ADD COLUMN maintenance_mode TINYINT(1) NOT NULL DEFAULT 0 AFTER status,
-    ADD COLUMN placement_weight SMALLINT UNSIGNED NOT NULL DEFAULT 100 AFTER maintenance_mode;
+ALTER TABLE proxmox_nodes ADD COLUMN maintenance_mode TINYINT(1) NOT NULL DEFAULT 0 AFTER status;
+ALTER TABLE proxmox_nodes ADD COLUMN placement_weight SMALLINT UNSIGNED NOT NULL DEFAULT 100 AFTER maintenance_mode;
 
-ALTER TABLE quotas
-    ADD COLUMN max_backups INT UNSIGNED NOT NULL DEFAULT 0 AFTER max_snapshots,
-    ADD COLUMN max_backup_storage_gb BIGINT UNSIGNED NOT NULL DEFAULT 0 AFTER max_backups,
-    ADD COLUMN max_parallel_jobs INT UNSIGNED NOT NULL DEFAULT 0 AFTER max_ip_addresses;
+ALTER TABLE quotas ADD COLUMN max_backups INT UNSIGNED NOT NULL DEFAULT 0 AFTER max_snapshots;
+ALTER TABLE quotas ADD COLUMN max_backup_storage_gb BIGINT UNSIGNED NOT NULL DEFAULT 0 AFTER max_backups;
+ALTER TABLE quotas ADD COLUMN max_parallel_jobs INT UNSIGNED NOT NULL DEFAULT 0 AFTER max_ip_addresses;
 
-ALTER TABLE jobs
-    MODIFY COLUMN status ENUM('queued','running','completed','failed','dead_letter') NOT NULL DEFAULT 'queued',
-    ADD COLUMN max_attempts SMALLINT UNSIGNED NOT NULL DEFAULT 3 AFTER attempts,
-    ADD COLUMN dead_letter_at TIMESTAMP NULL AFTER finished_at;
+ALTER TABLE jobs MODIFY COLUMN status ENUM('queued','running','completed','failed','dead_letter') NOT NULL DEFAULT 'queued';
+ALTER TABLE jobs ADD COLUMN max_attempts SMALLINT UNSIGNED NOT NULL DEFAULT 3 AFTER attempts;
+ALTER TABLE jobs ADD COLUMN dead_letter_at TIMESTAMP NULL AFTER finished_at;
 
 CREATE TABLE IF NOT EXISTS quota_template_limits (
     id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
@@ -116,5 +113,4 @@ CREATE TABLE IF NOT EXISTS webhook_deliveries (
     CONSTRAINT fk_webhook_deliveries_hook FOREIGN KEY (webhook_id) REFERENCES webhooks(id) ON DELETE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
-INSERT INTO schema_migrations (version) VALUES ('1.1.0')
-ON DUPLICATE KEY UPDATE applied_at = applied_at;
+INSERT INTO schema_migrations (version) VALUES ('1.1.0') ON DUPLICATE KEY UPDATE applied_at=applied_at;
