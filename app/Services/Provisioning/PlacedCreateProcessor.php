@@ -11,6 +11,7 @@ use CloudPortal\Services\Proxmox\ProxmoxClientInterface;
 use CloudPortal\Services\Proxmox\ProxmoxClientProviderInterface;
 use CloudPortal\Services\Proxmox\ProxmoxException;
 use CloudPortal\Services\Quota\QuotaService;
+use InvalidArgumentException;
 use PDO;
 use Throwable;
 
@@ -31,12 +32,16 @@ final class PlacedCreateProcessor
             $result = $this->create($job);
             $this->jobs->complete((int) $job['id'], $result);
             $this->audit->log($job['user_id'] === null ? null : (int) $job['user_id'], '127.0.0.1', 'vm.create.placed', 'success', 'job', (string) $job['public_id'], $result);
+        } catch (InvalidArgumentException $exception) {
+            $this->releaseReservation($job);
+            $this->jobs->failPermanent((int) $job['id'], $exception->getMessage());
+            $this->audit->log($job['user_id'] === null ? null : (int) $job['user_id'], '127.0.0.1', 'vm.create.placed', 'failure', 'job', (string) $job['public_id'], ['error' => $exception->getMessage(), 'retryable' => false]);
         } catch (Throwable $exception) {
             if (!empty($job['reservation_key'])) {
                 (new QuotaService($this->database->pdo()))->retainUntilReconciled((string) $job['reservation_key']);
             }
             $this->jobs->fail((int) $job['id'], $exception->getMessage());
-            $this->audit->log($job['user_id'] === null ? null : (int) $job['user_id'], '127.0.0.1', 'vm.create.placed', 'failure', 'job', (string) $job['public_id'], ['error' => $exception->getMessage()]);
+            $this->audit->log($job['user_id'] === null ? null : (int) $job['user_id'], '127.0.0.1', 'vm.create.placed', 'failure', 'job', (string) $job['public_id'], ['error' => $exception->getMessage(), 'retryable' => true]);
         }
     }
 
@@ -53,10 +58,7 @@ final class PlacedCreateProcessor
                 return false;
             }
         }
-        $this->database->transaction(function (PDO $pdo) use ($job): void {
-            (new IPAMService($pdo))->releaseReservation((string) $job['reservation_key']);
-            (new QuotaService($pdo))->release((string) $job['reservation_key']);
-        });
+        $this->releaseReservation($job);
         $this->jobs->markReconciled((int) $job['id']);
         return true;
     }
@@ -68,6 +70,8 @@ final class PlacedCreateProcessor
         $client = $this->clients->forConnection((int) $job['connection_id']);
         $sourceNode = (string) $payload['source_node'];
         $targetNode = (string) $payload['node_name'];
+        $this->assertCrossNodeCloneSupported($client, $sourceNode, $targetNode, (int) $payload['source_vmid'], (string) $payload['storage_name']);
+
         $vmid = (int) ($payload['allocated_vmid'] ?? 0);
         if ($vmid <= 0) {
             $vmid = (int) $client->get('/cluster/nextid');
@@ -120,7 +124,7 @@ final class PlacedCreateProcessor
             throw new \RuntimeException('The cloned VM does not expose a readable scsi0 disk size.');
         }
         if ($currentDisk > (int) $payload['disk_gb']) {
-            throw new \RuntimeException('The template scsi0 disk is larger than the selected resource plan.');
+            throw new InvalidArgumentException('The template scsi0 disk is larger than the selected resource plan.');
         }
         if ($currentDisk < (int) $payload['disk_gb']) {
             $this->wait($job, $client, $targetNode, $this->requireUpid($client->put($path . '/resize', [
@@ -151,6 +155,7 @@ final class PlacedCreateProcessor
                     (new IPAMService($pdo))->releaseReservation((string) $job['reservation_key']);
                     (new QuotaService($pdo))->release((string) $job['reservation_key']);
                 }
+                $pdo->prepare('UPDATE jobs SET virtual_machine_id=:vm WHERE id=:id')->execute(['vm' => (int) $existingId, 'id' => $job['id']]);
                 return (int) $existingId;
             }
             $statement = $pdo->prepare(
@@ -159,26 +164,80 @@ final class PlacedCreateProcessor
                  VALUES (:connection,:project,:owner,:template,:plan,:network,:storage,:vmid,:node,:name,:status,:vcpu,:ram,:disk)"
             );
             $statement->execute([
-                'connection' => $job['connection_id'],
-                'project' => $payload['project_id'],
-                'owner' => $payload['owner_user_id'],
-                'template' => $payload['template_id'],
-                'plan' => $payload['plan_id'],
-                'network' => $payload['network_id'],
-                'storage' => $payload['storage_id'],
-                'vmid' => $vmid,
-                'node' => $node,
-                'name' => $payload['name'],
-                'status' => $status,
-                'vcpu' => $payload['vcpu'],
-                'ram' => $payload['ram_mb'],
-                'disk' => $payload['disk_gb'],
+                'connection' => $job['connection_id'], 'project' => $payload['project_id'], 'owner' => $payload['owner_user_id'],
+                'template' => $payload['template_id'], 'plan' => $payload['plan_id'], 'network' => $payload['network_id'],
+                'storage' => $payload['storage_id'], 'vmid' => $vmid, 'node' => $node, 'name' => $payload['name'],
+                'status' => $status, 'vcpu' => $payload['vcpu'], 'ram' => $payload['ram_mb'], 'disk' => $payload['disk_gb'],
             ]);
             $vmId = (int) $pdo->lastInsertId();
             (new IPAMService($pdo))->allocate((string) $job['reservation_key'], $vmId);
             (new QuotaService($pdo))->release((string) $job['reservation_key']);
             $pdo->prepare('UPDATE jobs SET virtual_machine_id=:vm WHERE id=:id')->execute(['vm' => $vmId, 'id' => $job['id']]);
             return $vmId;
+        });
+    }
+
+    private function assertCrossNodeCloneSupported(ProxmoxClientInterface $client, string $sourceNode, string $targetNode, int $sourceVmid, string $targetStorage): void
+    {
+        if ($sourceNode === $targetNode) {
+            return;
+        }
+        $config = $client->get('/nodes/' . rawurlencode($sourceNode) . '/qemu/' . $sourceVmid . '/config');
+        if (!is_array($config)) {
+            throw new InvalidArgumentException('Unable to verify template storage before cross-node clone.');
+        }
+        $sourceStorages = [];
+        foreach ($config as $key => $value) {
+            if (preg_match('/^(?:scsi|sata|ide|virtio)\d+$/', (string) $key) !== 1 || !is_string($value)) {
+                continue;
+            }
+            $volume = explode(',', $value, 2)[0];
+            if (!str_contains($volume, ':')) {
+                continue;
+            }
+            $storage = trim(explode(':', $volume, 2)[0]);
+            if ($storage !== '') {
+                $sourceStorages[$storage] = true;
+            }
+        }
+        if ($sourceStorages === []) {
+            throw new InvalidArgumentException('Template storage could not be determined for cross-node clone.');
+        }
+        $definitions = $client->get('/storage');
+        if (!is_array($definitions)) {
+            throw new InvalidArgumentException('Unable to verify shared storage configuration.');
+        }
+        $shared = [];
+        foreach ($definitions as $definition) {
+            if (!is_array($definition) || empty($definition['storage'])) continue;
+            $shared[(string) $definition['storage']] = $this->flag($definition['shared'] ?? false);
+        }
+        foreach (array_keys($sourceStorages) as $storage) {
+            if (!($shared[$storage] ?? false)) {
+                throw new InvalidArgumentException('Cross-node provisioning requires all template disks to be on shared storage; non-shared storage detected: ' . $storage . '.');
+            }
+        }
+        $targetStorages = $client->get('/nodes/' . rawurlencode($targetNode) . '/storage');
+        if (!is_array($targetStorages)) {
+            throw new InvalidArgumentException('Unable to verify target-node storage availability.');
+        }
+        foreach ($targetStorages as $storage) {
+            if (!is_array($storage) || (string) ($storage['storage'] ?? '') !== $targetStorage) continue;
+            $content = array_map('trim', explode(',', (string) ($storage['content'] ?? '')));
+            if (($storage['active'] ?? 1) && ($storage['enabled'] ?? 1) && (in_array('images', $content, true) || $content === [''])) {
+                return;
+            }
+        }
+        throw new InvalidArgumentException('Selected target storage is unavailable for VM images on node ' . $targetNode . '.');
+    }
+
+    /** @param array<string,mixed> $job */
+    private function releaseReservation(array $job): void
+    {
+        if (empty($job['reservation_key'])) return;
+        $this->database->transaction(function (PDO $pdo) use ($job): void {
+            (new IPAMService($pdo))->releaseReservation((string) $job['reservation_key']);
+            (new QuotaService($pdo))->release((string) $job['reservation_key']);
         });
     }
 
@@ -205,9 +264,7 @@ final class PlacedCreateProcessor
             $client->get('/nodes/' . rawurlencode($node) . '/qemu/' . $vmid . '/status/current');
             return true;
         } catch (ProxmoxException $exception) {
-            if ($exception->httpStatus === 404) {
-                return false;
-            }
+            if ($exception->httpStatus === 404) return false;
             throw $exception;
         }
     }
@@ -235,6 +292,11 @@ final class PlacedCreateProcessor
             default => 1,
         };
         return (int) ceil($value * $multiplier);
+    }
+
+    private function flag(mixed $value): bool
+    {
+        return in_array($value, [true, 1, '1', 'yes', 'on'], true);
     }
 
     private function requireUpid(mixed $value): string
