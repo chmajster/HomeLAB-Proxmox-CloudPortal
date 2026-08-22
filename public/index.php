@@ -7,6 +7,7 @@ use CloudPortal\Http\HttpException;
 use CloudPortal\Http\Request;
 use CloudPortal\Http\Response;
 use CloudPortal\Http\Router;
+use CloudPortal\Installer\Services\JsonInstaller;
 use CloudPortal\Security\Headers;
 
 $root = dirname(__DIR__);
@@ -47,6 +48,18 @@ $_SESSION['last_activity'] = time();
 
 try {
     $request = Request::capture($app->basePath());
+    $jsonInstallPath = $root . '/install.json';
+    if (!$app->installed() && in_array($request->path, ['/install', '/install/'], true) && is_file($jsonInstallPath)) {
+        try {
+            (new JsonInstaller($app))->run($jsonInstallPath);
+            Response::redirect($app->url('/install/finish'))->send();
+        } catch (Throwable $exception) {
+            throw new HttpException(
+                500,
+                'Automatic installation from install.json failed. Review storage/logs/installer.log, correct or remove install.json, and retry.',
+            );
+        }
+    }
     if (!$app->installed() && !str_starts_with($request->path, '/install')) {
         if (str_starts_with($request->path, '/api/')) throw new HttpException(503, 'Application installation has not been completed.');
         Response::redirect($app->url('/install'))->send();
