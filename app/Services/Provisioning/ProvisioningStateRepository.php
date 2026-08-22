@@ -48,10 +48,15 @@ final class ProvisioningStateRepository
         return $state;
     }
 
-    public function step(int $jobId, int $step, string $name, ?string $message = null): void
+    public function begin(int $jobId, int $step, string $name): void
     {
         $statement = $this->pdo->prepare('UPDATE vm_provisioning SET current_step=:step,current_step_name=:name,last_error=NULL WHERE job_id=:job');
         $statement->execute(['step' => $step, 'name' => $name, 'job' => $jobId]);
+    }
+
+    public function step(int $jobId, int $step, string $name, ?string $message = null): void
+    {
+        $this->begin($jobId, $step, $name);
         $this->event($jobId, $step, $name, 'completed', $message);
     }
 
