@@ -1,0 +1,27 @@
+{
+  "database": {
+    "driver": "mysql",
+    "host": "127.0.0.1",
+    "port": 3306,
+    "name": "cloudportal",
+    "user": "cloudportal",
+    "password": "CHANGE_ME_DATABASE_PASSWORD",
+    "confirm_existing": false
+  },
+  "administrator": {
+    "username": "admin",
+    "email": "admin@example.com",
+    "password": "ChangeMeStrong123!",
+    "resume_existing": false
+  },
+  "proxmox": {
+    "skip": true
+  },
+  "portal": {
+    "name": "Algen Cloud Portal",
+    "url": "https://cloud.example.com",
+    "timezone": "Europe/Warsaw",
+    "locale": "pl",
+    "session_lifetime": 7200
+  }
+}
