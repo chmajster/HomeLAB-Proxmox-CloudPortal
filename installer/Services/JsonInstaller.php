@@ -45,6 +45,11 @@ final class JsonInstaller
 
             $this->state->put('requirements_auto_passed', $this->requirements->allPassed($checks));
             $this->state->security();
+            $this->state->put('bootstrap', [
+                'dns' => $configuration['dns'],
+                'proxmox_credentials' => $configuration['proxmox_credentials'],
+                'hostname_generator' => $configuration['hostname_generator'],
+            ]);
             $this->state->markCompleted(1);
 
             if ($this->state->completedStep() < 2) {
@@ -175,6 +180,8 @@ final class JsonInstaller
             (string) ($configuration['database']['password'] ?? ''),
             (string) ($configuration['administrator']['password'] ?? ''),
             (string) ($configuration['proxmox']['token_secret'] ?? ''),
+            (string) ($configuration['proxmox_credentials']['password'] ?? ''),
+            (string) ($configuration['dns']['api_token'] ?? ''),
             (string) ($this->state->get('security', [])['app_key'] ?? ''),
             (string) ($this->state->get('security', [])['encryption_key'] ?? ''),
             (string) ($this->state->get('security', [])['csrf_secret'] ?? ''),
