@@ -10,7 +10,7 @@ use PDO;
 final class JobRepository
 {
     private const RETRYABLE_TYPES = [
-        'vm.start','vm.shutdown','vm.stop','vm.reboot','vm.suspend','vm.resume','vm.delete','vm.resize',
+        'vm.start','vm.shutdown','vm.stop','vm.reboot','vm.suspend','vm.resume','vm.delete','vm.resize','vm.rename',
         'vm.snapshot.rollback','vm.clone','vm.reconfigure','vm.disk.attach','vm.disk.detach','vm.nic.upsert','vm.nic.delete',
         'vm.migrate','vm.backup','vm.restore','vm.create.placed',
     ];
