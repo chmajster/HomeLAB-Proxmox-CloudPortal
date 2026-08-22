@@ -2,6 +2,7 @@
 /node_modules/
 /.phpunit.cache/
 /.env
+/install.json
 /config/runtime.php
 /storage/installed.lock
 /storage/logs/*.log
