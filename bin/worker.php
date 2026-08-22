@@ -5,6 +5,9 @@ declare(strict_types=1);
 
 use CloudPortal\Application;
 use CloudPortal\Database\Database;
+use CloudPortal\Services\Notifications\WebhookService;
+use CloudPortal\Services\Observability\WorkerHeartbeatService;
+use CloudPortal\Services\Provisioning\AdvancedJobProcessor;
 use CloudPortal\Services\Provisioning\JobRepository;
 use CloudPortal\Services\Provisioning\ProxmoxProvisioner;
 use CloudPortal\Services\Proxmox\ProxmoxClientFactory;
@@ -19,22 +22,28 @@ if (!$app->installed()) {
 }
 $database = new Database($app->config);
 $jobs = new JobRepository($database->pdo());
-$provisioner = new ProxmoxProvisioner(
-    $database,
-    new ProxmoxClientFactory($database->pdo(), $app->crypto()),
-    $jobs,
-    $app->audit(),
-);
+$clients = new ProxmoxClientFactory($database->pdo(), $app->crypto());
+$provisioner = new ProxmoxProvisioner($database, $clients, $jobs, $app->audit());
+$advanced = new AdvancedJobProcessor($database, $clients, $jobs, $app->audit());
+$heartbeat = new WorkerHeartbeatService($database->pdo(), (string) ($argv[0] ?? 'cloud-worker') . '@' . (gethostname() ?: 'unknown'), Application::VERSION);
+$webhooks = new WebhookService($database->pdo(), $app->crypto());
+$heartbeat->beat();
+
 foreach ($jobs->staleRunning() as $staleJob) {
     if (!$jobs->acquireExecutionLock((string) $staleJob['public_id'])) {
         continue;
     }
     try {
-        $provisioner->recoverStale($staleJob);
+        if ($advanced->supports((string) $staleJob['type'])) {
+            $jobs->fail((int) $staleJob['id'], 'Worker interrupted; advanced operation was returned to the retry queue.');
+        } else {
+            $provisioner->recoverStale($staleJob);
+        }
     } finally {
         $jobs->releaseExecutionLock((string) $staleJob['public_id']);
     }
 }
+
 $lastReconciliation = 0;
 $reconcileFailed = static function () use ($jobs, $provisioner, &$lastReconciliation): void {
     if (time() - $lastReconciliation < 60) {
@@ -56,7 +65,12 @@ $reconcileFailed = static function () use ($jobs, $provisioner, &$lastReconcilia
 };
 $reconcileFailed();
 $once = in_array('--once', $argv, true);
+$lastHeartbeat = time();
 do {
+    if (time() - $lastHeartbeat >= 15) {
+        $heartbeat->beat();
+        $lastHeartbeat = time();
+    }
     $job = $jobs->claimNext();
     if ($job === null) {
         $reconcileFailed();
@@ -71,7 +85,38 @@ do {
         continue;
     }
     try {
-        $provisioner->process($job);
+        if ($advanced->supports((string) $job['type'])) {
+            $advanced->process($job);
+        } else {
+            $provisioner->process($job);
+        }
+        $final = $jobs->find((string) $job['public_id']);
+        if (is_array($final)) {
+            $status = (string) $final['status'];
+            $event = match ($status) {
+                'completed' => 'job.completed',
+                'dead_letter' => 'job.dead_letter',
+                'failed' => 'job.failed',
+                'queued' => 'job.retrying',
+                default => 'job.updated',
+            };
+            try {
+                $webhooks->publish($event, [
+                    'job_id' => (string) $final['public_id'],
+                    'type' => (string) $final['type'],
+                    'status' => $status,
+                    'attempts' => (int) $final['attempts'],
+                    'max_attempts' => (int) $final['max_attempts'],
+                    'project_id' => $final['project_id'] === null ? null : (int) $final['project_id'],
+                    'virtual_machine_id' => $final['virtual_machine_id'] === null ? null : (int) $final['virtual_machine_id'],
+                    'error' => $final['error_message'],
+                ]);
+                $webhooks->publish((string) $final['type'] . '.' . $status, ['job_id' => (string) $final['public_id'], 'status' => $status]);
+            } catch (Throwable $exception) {
+                error_log('Webhook delivery failed: ' . $exception->getMessage());
+            }
+        }
+        $heartbeat->beat((string) $job['public_id']);
     } finally {
         $jobs->releaseExecutionLock((string) $job['public_id']);
     }
