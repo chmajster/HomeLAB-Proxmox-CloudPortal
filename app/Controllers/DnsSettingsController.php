@@ -17,6 +17,20 @@ final class DnsSettingsController
     {
     }
 
+    public function listSafe(Request $request): Response
+    {
+        $this->app->auth()->requirePermission('admin.access');
+        $rows = $this->app->pdo()->query('SELECT setting_key,value,is_public,updated_at FROM settings ORDER BY setting_key')->fetchAll();
+        foreach ($rows as &$row) {
+            $key = strtolower((string) ($row['setting_key'] ?? ''));
+            if (preg_match('/(?:password|secret|token|encrypted)/', $key) === 1) {
+                $row['value'] = json_encode('***', JSON_THROW_ON_ERROR);
+            }
+        }
+        unset($row);
+        return Response::json(['data' => $rows]);
+    }
+
     public function show(Request $request): Response
     {
         $this->app->auth()->requirePermission('admin.access');
