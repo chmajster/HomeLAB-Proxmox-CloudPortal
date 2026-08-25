@@ -20,21 +20,17 @@ final class ProxmoxPasswordBootstrapContractTest extends TestCase
         self::assertStringContainsString('NeedTFA', $source);
     }
 
-    public function testExistingTokenRequiresExplicitSecondSubmissionBeforeDelete(): void
+    public function testExistingTokenIsAutomaticallyDeletedAndRecreated(): void
     {
         $root = dirname(__DIR__, 2);
         $bootstrap = (string) file_get_contents($root . '/installer/Services/ProxmoxPasswordBootstrapper.php');
-        $controller = (string) file_get_contents($root . '/installer/Controllers/ProxmoxSetupController.php');
 
-        self::assertStringContainsString('bool $replaceExisting = false', $bootstrap);
+        self::assertStringContainsString('Password bootstrap owns the configured token name', $bootstrap);
+        self::assertStringContainsString('$replaceExisting = true;', $bootstrap);
         self::assertStringContainsString('tokenExists(', $bootstrap);
-        self::assertStringContainsString('if (!$replaceExisting)', $bootstrap);
         self::assertStringContainsString("\$this->request(\$config, 'DELETE', \$path, [], \$session)", $bootstrap);
+        self::assertStringContainsString("\$this->request(\n                \$config,\n                'POST'", $bootstrap);
         self::assertStringContainsString("'errors'", $bootstrap);
-        self::assertStringContainsString("'installer_proxmox_replace_token'", $controller);
-        self::assertStringContainsString('hash_equals($pendingReplacement, $replacementKey)', $controller);
-        self::assertStringContainsString('Czy usunąć istniejący token i utworzyć nowy?', $controller);
-        self::assertStringContainsString('Jeśli chcesz zachować istniejący token, zmień nazwę tworzonego tokenu', $controller);
     }
 
     public function testDedicatedControllerNeverPersistsProxmoxPassword(): void
