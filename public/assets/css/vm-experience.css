@@ -1,0 +1,108 @@
+.vm-summary-grid {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: .8rem;
+  margin-bottom: 1rem;
+}
+.vm-summary-card {
+  padding: .9rem 1rem;
+  border: 1px solid var(--portal-border);
+  border-radius: .75rem;
+  background: var(--portal-panel);
+}
+.vm-summary-card small {
+  display: block;
+  color: var(--portal-muted);
+  margin-bottom: .2rem;
+}
+.vm-summary-card strong {
+  display: block;
+  font-size: 1.35rem;
+}
+.vm-list-toolbar {
+  display: flex;
+  gap: .7rem;
+  align-items: center;
+  flex-wrap: wrap;
+  padding: .85rem 1rem;
+  border-bottom: 1px solid var(--portal-border);
+  background: color-mix(in srgb, var(--portal-panel-2) 72%, transparent);
+}
+.vm-list-toolbar .form-control {
+  max-width: 360px;
+}
+.vm-friendly-table tbody tr {
+  transition: background .16s ease, transform .16s ease;
+}
+.vm-friendly-table tbody tr:hover {
+  background: color-mix(in srgb, var(--portal-primary) 6%, transparent);
+}
+.vm-list-panel .actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: .35rem;
+}
+.vm-list-panel .actions .btn {
+  min-height: 2rem;
+  padding: .32rem .55rem;
+  font-size: .78rem;
+}
+.vm-management-panel {
+  overflow: visible;
+}
+.vm-management-panel .panel-body {
+  display: grid;
+  gap: 1rem;
+}
+.vm-management-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: .55rem;
+}
+.vm-management-actions .btn {
+  min-width: 7rem;
+}
+.vm-inline-form {
+  display: grid;
+  grid-template-columns: minmax(180px, 1fr) minmax(220px, 2fr) auto auto;
+  gap: .65rem;
+  align-items: end;
+  padding: .9rem;
+  border: 1px solid var(--portal-border);
+  border-radius: .7rem;
+  background: var(--portal-panel-2);
+}
+.vm-inline-form.d-none {
+  display: none !important;
+}
+.vm-management-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: .45rem 1rem;
+  color: var(--portal-muted);
+  font-size: .84rem;
+}
+.vm-management-meta strong {
+  color: var(--bs-body-color);
+  font-weight: 650;
+}
+.template-quick-select,
+.portal-hostname-prefix-panel {
+  border-top: 1px solid var(--portal-border);
+  padding: 1rem;
+}
+.template-quick-select-grid {
+  display: grid;
+  grid-template-columns: minmax(260px, 1fr) auto;
+  gap: .7rem;
+  align-items: end;
+}
+@media (max-width: 900px) {
+  .vm-summary-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .vm-inline-form { grid-template-columns: 1fr; }
+  .template-quick-select-grid { grid-template-columns: 1fr; }
+}
+@media (max-width: 520px) {
+  .vm-summary-grid { grid-template-columns: 1fr; }
+  .vm-management-actions .btn { flex: 1 1 calc(50% - .55rem); min-width: 0; }
+}
