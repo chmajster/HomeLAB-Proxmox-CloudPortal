@@ -122,9 +122,7 @@ final class ProxmoxProvisioner implements ProvisionerInterface
                     $this->jobs->complete((int) $job['id'], [...$result, 'recovered' => true]);
                     return;
                 } catch (ProxmoxException $exception) {
-                    if ($exception->httpStatus !== 404) {
-                        throw $exception;
-                    }
+                    if ($exception->httpStatus !== 404) throw $exception;
                     $this->database->transaction(function (PDO $pdo) use ($vm): void {
                         (new IPAMService($pdo))->releaseVm((int) $vm['id']);
                         $pdo->prepare("UPDATE virtual_machines SET status='deleted', deleted_at=CURRENT_TIMESTAMP WHERE id=:id")->execute(['id' => $vm['id']]);
@@ -138,10 +136,7 @@ final class ProxmoxProvisioner implements ProvisionerInterface
                 $remoteSnapshots = $client->get($this->vmPath($vm) . '/snapshot');
                 $exists = false;
                 foreach (is_array($remoteSnapshots) ? $remoteSnapshots : [] as $snapshot) {
-                    if (is_array($snapshot) && ($snapshot['name'] ?? null) === $job['payload']['name']) {
-                        $exists = true;
-                        break;
-                    }
+                    if (is_array($snapshot) && ($snapshot['name'] ?? null) === $job['payload']['name']) { $exists = true; break; }
                 }
                 if ((string) $job['type'] === 'vm.snapshot.create' && $exists) {
                     $this->database->pdo()->prepare("UPDATE snapshots SET status='ready' WHERE id=:id")->execute(['id' => $job['payload']['snapshot_id']]);
@@ -177,132 +172,87 @@ final class ProxmoxProvisioner implements ProvisionerInterface
         try {
             $client = $this->clients->forConnection((int) $job['connection_id']);
             $vmid = (int) $client->get('/cluster/nextid');
-            if ($vmid <= 0) {
-                throw new \RuntimeException('Proxmox did not return a valid VMID.');
-            }
+            if ($vmid <= 0) throw new \RuntimeException('Proxmox did not return a valid VMID.');
             $payload['allocated_vmid'] = $vmid;
             $job['payload'] = $payload;
             $this->jobs->payload((int) $job['id'], $payload);
 
-        $cloneUpid = $this->requireUpid($client->post(
-            '/nodes/' . rawurlencode($node) . '/qemu/' . (int) $payload['template_vmid'] . '/clone',
-            [
-                'newid' => $vmid,
-                'name' => (string) $payload['name'],
-                'full' => 1,
-                'storage' => (string) $payload['storage_name'],
-            ],
-        ));
-        $this->jobs->upid((int) $job['id'], $cloneUpid);
-        $client->waitForTask($node, $cloneUpid);
+            $cloneUpid = $this->requireUpid($client->post(
+                '/nodes/' . rawurlencode($node) . '/qemu/' . (int) $payload['template_vmid'] . '/clone',
+                ['newid' => $vmid, 'name' => (string) $payload['name'], 'full' => 1, 'storage' => (string) $payload['storage_name']],
+            ));
+            $this->jobs->upid((int) $job['id'], $cloneUpid);
+            $client->waitForTask($node, $cloneUpid);
 
-        $net0 = 'virtio,bridge=' . (string) $payload['bridge'];
-        if ($payload['vlan_id'] !== null) {
-            $net0 .= ',tag=' . (int) $payload['vlan_id'];
-        }
-        $ipConfig = 'ip=' . (string) $payload['ip_cidr'];
-        if (!empty($payload['gateway'])) {
-            $ipConfig .= ',gw=' . (string) $payload['gateway'];
-        }
-        $config = [
-            'cores' => (int) $payload['vcpu'],
-            'memory' => (int) $payload['ram_mb'],
-            'ciuser' => (string) $payload['cloud_init_user'],
-            'ipconfig0' => $ipConfig,
-            'net0' => $net0,
-            'agent' => 'enabled=1',
-        ];
-        if ((string) $payload['ssh_public_key'] !== '') {
-            $config['sshkeys'] = (string) $payload['ssh_public_key'];
-        }
-        if (!empty($payload['dns_servers'])) {
-            $config['nameserver'] = str_replace(',', ' ', (string) $payload['dns_servers']);
-        }
-        $vmPath = '/nodes/' . rawurlencode($node) . '/qemu/' . $vmid;
-        $client->put($vmPath . '/config', $config);
-        $currentConfig = $client->get($vmPath . '/config');
-        $currentDiskGb = is_array($currentConfig) ? $this->diskSizeGb($currentConfig['scsi0'] ?? null) : null;
-        if ($currentDiskGb === null) {
-            throw new \RuntimeException('The cloned VM does not expose a readable scsi0 disk size.');
-        }
-        if ($currentDiskGb > (int) $payload['disk_gb']) {
-            throw new \RuntimeException('The template scsi0 disk is larger than the selected resource plan.');
-        }
-        if ($currentDiskGb < (int) $payload['disk_gb']) {
-            $resizeUpid = $this->requireUpid($client->put($vmPath . '/resize', [
-                'disk' => 'scsi0',
-                'size' => (int) $payload['disk_gb'] . 'G',
-            ]));
-            $this->jobs->upid((int) $job['id'], $resizeUpid);
-            $client->waitForTask($node, $resizeUpid);
-        }
-
-        $status = 'stopped';
-        if ((bool) $payload['start_after_create']) {
-            $startUpid = $this->requireUpid($client->post('/nodes/' . rawurlencode($node) . '/qemu/' . $vmid . '/status/start'));
-            $this->jobs->upid((int) $job['id'], $startUpid);
-            $client->waitForTask($node, $startUpid);
-            $status = 'running';
-        }
-
-        $vmId = $this->database->transaction(function (PDO $pdo) use ($job, $payload, $vmid, $status): int {
-            $statement = $pdo->prepare(
-                'INSERT INTO virtual_machines
-                 (connection_id, project_id, owner_user_id, template_id, resource_plan_id, network_id, storage_id,
-                  vmid, node_name, name, status, vcpu, ram_mb, disk_gb)
-                 VALUES (:connection, :project, :owner, :template, :plan, :network, :storage,
-                         :vmid, :node, :name, :status, :vcpu, :ram, :disk)'
-            );
-            $statement->execute([
-                'connection' => $job['connection_id'],
-                'project' => $payload['project_id'],
-                'owner' => $payload['owner_user_id'],
-                'template' => $payload['template_id'],
-                'plan' => $payload['plan_id'],
-                'network' => $payload['network_id'],
-                'storage' => $payload['storage_id'],
-                'vmid' => $vmid,
-                'node' => $payload['node_name'],
-                'name' => $payload['name'],
-                'status' => $status,
-                'vcpu' => $payload['vcpu'],
-                'ram' => $payload['ram_mb'],
-                'disk' => $payload['disk_gb'],
+            $net0 = 'virtio,bridge=' . (string) $payload['bridge'];
+            if ($payload['vlan_id'] !== null) $net0 .= ',tag=' . (int) $payload['vlan_id'];
+            $ipConfig = 'ip=' . (string) $payload['ip_cidr'];
+            if (!empty($payload['gateway'])) $ipConfig .= ',gw=' . (string) $payload['gateway'];
+            $config = (new CloudInitRuntime())->config($client, $node, $payload, [
+                'cores' => (int) $payload['vcpu'],
+                'memory' => (int) $payload['ram_mb'],
+                'ipconfig0' => $ipConfig,
+                'net0' => $net0,
             ]);
-            $vmId = (int) $pdo->lastInsertId();
-            (new IPAMService($pdo))->allocate((string) $job['reservation_key'], $vmId);
-            (new QuotaService($pdo))->release((string) $job['reservation_key']);
-            $pdo->prepare('UPDATE jobs SET virtual_machine_id = :vm WHERE id = :id')->execute(['vm' => $vmId, 'id' => $job['id']]);
-            return $vmId;
-        });
+            $vmPath = '/nodes/' . rawurlencode($node) . '/qemu/' . $vmid;
+            $client->put($vmPath . '/config', $config);
+            $currentConfig = $client->get($vmPath . '/config');
+            $currentDiskGb = is_array($currentConfig) ? $this->diskSizeGb($currentConfig['scsi0'] ?? null) : null;
+            if ($currentDiskGb === null) throw new \RuntimeException('The cloned VM does not expose a readable scsi0 disk size.');
+            if ($currentDiskGb > (int) $payload['disk_gb']) throw new \RuntimeException('The template scsi0 disk is larger than the selected resource plan.');
+            if ($currentDiskGb < (int) $payload['disk_gb']) {
+                $resizeUpid = $this->requireUpid($client->put($vmPath . '/resize', ['disk' => 'scsi0', 'size' => (int) $payload['disk_gb'] . 'G']));
+                $this->jobs->upid((int) $job['id'], $resizeUpid);
+                $client->waitForTask($node, $resizeUpid);
+            }
 
-            return ['virtual_machine_id' => $vmId, 'vmid' => $vmid, 'status' => $status];
+            $status = 'stopped';
+            if ((bool) $payload['start_after_create']) {
+                $startUpid = $this->requireUpid($client->post($vmPath . '/status/start'));
+                $this->jobs->upid((int) $job['id'], $startUpid);
+                $client->waitForTask($node, $startUpid);
+                $status = 'running';
+            }
+
+            $vmId = $this->database->transaction(function (PDO $pdo) use ($job, $payload, $vmid, $status): int {
+                $statement = $pdo->prepare(
+                    'INSERT INTO virtual_machines
+                     (connection_id, project_id, owner_user_id, template_id, resource_plan_id, network_id, storage_id, cloud_init_profile_id,
+                      vmid, node_name, name, status, vcpu, ram_mb, disk_gb)
+                     VALUES (:connection, :project, :owner, :template, :plan, :network, :storage, :cloud_profile,
+                             :vmid, :node, :name, :status, :vcpu, :ram, :disk)'
+                );
+                $statement->execute([
+                    'connection' => $job['connection_id'], 'project' => $payload['project_id'], 'owner' => $payload['owner_user_id'],
+                    'template' => $payload['template_id'], 'plan' => $payload['plan_id'], 'network' => $payload['network_id'], 'storage' => $payload['storage_id'],
+                    'cloud_profile' => $payload['cloud_init_profile_id'] ?? null, 'vmid' => $vmid, 'node' => $payload['node_name'], 'name' => $payload['name'],
+                    'status' => $status, 'vcpu' => $payload['vcpu'], 'ram' => $payload['ram_mb'], 'disk' => $payload['disk_gb'],
+                ]);
+                $vmId = (int) $pdo->lastInsertId();
+                (new IPAMService($pdo))->allocate((string) $job['reservation_key'], $vmId);
+                (new QuotaService($pdo))->release((string) $job['reservation_key']);
+                $pdo->prepare('UPDATE jobs SET virtual_machine_id = :vm WHERE id = :id')->execute(['vm' => $vmId, 'id' => $job['id']]);
+                return $vmId;
+            });
+            return ['virtual_machine_id' => $vmId, 'vmid' => $vmid, 'status' => $status, 'cloud_init_profile_id' => $payload['cloud_init_profile_id'] ?? null];
         } catch (Throwable $exception) {
             if ($vmid === null || ($client instanceof ProxmoxClientInterface && $this->cleanupProxmoxVm($client, $node, $vmid))) {
                 $this->rollbackCreate($job);
                 throw $exception;
             }
             (new QuotaService($this->database->pdo()))->retainUntilReconciled((string) $job['reservation_key']);
-            throw new \RuntimeException(
-                $exception->getMessage() . ' Automatic Proxmox cleanup could not be confirmed; quota and IP reservation were retained for reconciliation.',
-                0,
-                $exception,
-            );
+            throw new \RuntimeException($exception->getMessage() . ' Automatic Proxmox cleanup could not be confirmed; quota and IP reservation were retained for reconciliation.', 0, $exception);
         }
     }
 
     /** @param array<string,mixed> $job */
     public function reconcileFailedCreate(array $job): bool
     {
-        if ((string) ($job['type'] ?? '') !== 'vm.create' || empty($job['reservation_key'])) {
-            return false;
-        }
+        if ((string) ($job['type'] ?? '') !== 'vm.create' || empty($job['reservation_key'])) return false;
         $payload = $job['payload'];
         if (!empty($payload['allocated_vmid']) && !empty($payload['node_name']) && !empty($job['connection_id'])) {
             $client = $this->clients->forConnection((int) $job['connection_id']);
-            if (!$this->cleanupProxmoxVm($client, (string) $payload['node_name'], (int) $payload['allocated_vmid'])) {
-                return false;
-            }
+            if (!$this->cleanupProxmoxVm($client, (string) $payload['node_name'], (int) $payload['allocated_vmid'])) return false;
         }
         $this->rollbackCreate($job);
         $this->jobs->markReconciled((int) $job['id']);
@@ -320,8 +270,7 @@ final class ProxmoxProvisioner implements ProvisionerInterface
         $this->jobs->upid((int) $job['id'], $upid);
         $client->waitForTask((string) $vm['node_name'], $upid);
         $status = in_array($action, ['start', 'reboot', 'resume'], true) ? 'running' : 'stopped';
-        $this->database->pdo()->prepare('UPDATE virtual_machines SET status = :status, last_error = NULL WHERE id = :id')
-            ->execute(['status' => $status, 'id' => $vm['id']]);
+        $this->database->pdo()->prepare('UPDATE virtual_machines SET status = :status, last_error = NULL WHERE id = :id')->execute(['status' => $status, 'id' => $vm['id']]);
         return ['virtual_machine_id' => (int) $vm['id'], 'status' => $status];
     }
 
@@ -341,8 +290,7 @@ final class ProxmoxProvisioner implements ProvisionerInterface
         $client->waitForTask((string) $vm['node_name'], $upid);
         $this->database->transaction(function (PDO $pdo) use ($vm): void {
             (new IPAMService($pdo))->releaseVm((int) $vm['id']);
-            $pdo->prepare("UPDATE virtual_machines SET status = 'deleted', deleted_at = CURRENT_TIMESTAMP WHERE id = :id")
-                ->execute(['id' => $vm['id']]);
+            $pdo->prepare("UPDATE virtual_machines SET status = 'deleted', deleted_at = CURRENT_TIMESTAMP WHERE id = :id")->execute(['id' => $vm['id']]);
         });
         return ['virtual_machine_id' => (int) $vm['id'], 'status' => 'deleted'];
     }
@@ -353,14 +301,10 @@ final class ProxmoxProvisioner implements ProvisionerInterface
         $vm = $this->vm((int) $job['virtual_machine_id']);
         $payload = $job['payload'];
         $client = $this->clients->forConnection((int) $vm['connection_id']);
-        $upid = $this->requireUpid($client->post($this->vmPath($vm) . '/snapshot', [
-            'snapname' => (string) $payload['name'],
-            'description' => (string) ($payload['description'] ?? ''),
-        ]));
+        $upid = $this->requireUpid($client->post($this->vmPath($vm) . '/snapshot', ['snapname' => (string) $payload['name'], 'description' => (string) ($payload['description'] ?? '')]));
         $this->jobs->upid((int) $job['id'], $upid);
         $client->waitForTask((string) $vm['node_name'], $upid);
-        $this->database->pdo()->prepare("UPDATE snapshots SET status = 'ready' WHERE id = :id")
-            ->execute(['id' => $payload['snapshot_id']]);
+        $this->database->pdo()->prepare("UPDATE snapshots SET status = 'ready' WHERE id = :id")->execute(['id' => $payload['snapshot_id']]);
         return ['snapshot_id' => (int) $payload['snapshot_id'], 'status' => 'ready'];
     }
 
@@ -384,23 +328,15 @@ final class ProxmoxProvisioner implements ProvisionerInterface
         $payload = $job['payload'];
         $client = $this->clients->forConnection((int) $vm['connection_id']);
         $client->put($this->vmPath($vm) . '/config', ['cores' => $payload['vcpu'], 'memory' => $payload['ram_mb']]);
-        $this->database->pdo()->prepare('UPDATE virtual_machines SET vcpu = :vcpu, ram_mb = :ram WHERE id = :id')
-            ->execute(['vcpu' => $payload['vcpu'], 'ram' => $payload['ram_mb'], 'id' => $vm['id']]);
+        $this->database->pdo()->prepare('UPDATE virtual_machines SET vcpu = :vcpu, ram_mb = :ram WHERE id = :id')->execute(['vcpu' => $payload['vcpu'], 'ram' => $payload['ram_mb'], 'id' => $vm['id']]);
         if ((int) $payload['disk_gb'] > (int) $vm['disk_gb']) {
-            $resizeUpid = $this->requireUpid($client->put($this->vmPath($vm) . '/resize', [
-                'disk' => 'scsi0',
-                'size' => (int) $payload['disk_gb'] . 'G',
-            ]));
+            $resizeUpid = $this->requireUpid($client->put($this->vmPath($vm) . '/resize', ['disk' => 'scsi0', 'size' => (int) $payload['disk_gb'] . 'G']));
             $this->jobs->upid((int) $job['id'], $resizeUpid);
             $client->waitForTask((string) $vm['node_name'], $resizeUpid);
-            $this->database->pdo()->prepare('UPDATE virtual_machines SET disk_gb = :disk WHERE id = :id')
-                ->execute(['disk' => $payload['disk_gb'], 'id' => $vm['id']]);
+            $this->database->pdo()->prepare('UPDATE virtual_machines SET disk_gb = :disk WHERE id = :id')->execute(['disk' => $payload['disk_gb'], 'id' => $vm['id']]);
         }
-        $this->database->pdo()->prepare('UPDATE virtual_machines SET resource_plan_id = :plan, last_error = NULL WHERE id = :id')
-            ->execute(['plan' => $payload['plan_id'], 'id' => $vm['id']]);
-        if (!empty($job['reservation_key'])) {
-            (new QuotaService($this->database->pdo()))->release((string) $job['reservation_key']);
-        }
+        $this->database->pdo()->prepare('UPDATE virtual_machines SET resource_plan_id = :plan, last_error = NULL WHERE id = :id')->execute(['plan' => $payload['plan_id'], 'id' => $vm['id']]);
+        if (!empty($job['reservation_key'])) (new QuotaService($this->database->pdo()))->release((string) $job['reservation_key']);
         return ['virtual_machine_id' => (int) $vm['id'], 'status' => (string) $vm['status']];
     }
 
@@ -408,9 +344,7 @@ final class ProxmoxProvisioner implements ProvisionerInterface
     private function rollbackCreate(array $job): void
     {
         $key = (string) ($job['reservation_key'] ?? '');
-        if ($key === '') {
-            return;
-        }
+        if ($key === '') return;
         $this->database->transaction(function (PDO $pdo) use ($key): void {
             (new IPAMService($pdo))->releaseReservation($key);
             (new QuotaService($pdo))->release($key);
@@ -424,14 +358,10 @@ final class ProxmoxProvisioner implements ProvisionerInterface
             $current = $client->get($path . '/status/current');
             if (is_array($current) && ($current['status'] ?? null) === 'running') {
                 $stop = $client->post($path . '/status/stop');
-                if (is_string($stop) && str_starts_with($stop, 'UPID:')) {
-                    $client->waitForTask($node, $stop, 120);
-                }
+                if (is_string($stop) && str_starts_with($stop, 'UPID:')) $client->waitForTask($node, $stop, 120);
             }
             $delete = $client->delete($path, ['purge' => 1, 'destroy-unreferenced-disks' => 1]);
-            if (is_string($delete) && str_starts_with($delete, 'UPID:')) {
-                $client->waitForTask($node, $delete, 300);
-            }
+            if (is_string($delete) && str_starts_with($delete, 'UPID:')) $client->waitForTask($node, $delete, 300);
             try {
                 $client->get($path . '/status/current');
                 return false;
@@ -461,17 +391,13 @@ final class ProxmoxProvisioner implements ProvisionerInterface
 
     private function requireUpid(mixed $value): string
     {
-        if (!is_string($value) || !str_starts_with($value, 'UPID:')) {
-            throw new \RuntimeException('Proxmox did not return a valid task UPID.');
-        }
+        if (!is_string($value) || !str_starts_with($value, 'UPID:')) throw new \RuntimeException('Proxmox did not return a valid task UPID.');
         return $value;
     }
 
     private function diskSizeGb(mixed $disk): ?int
     {
-        if (!is_string($disk) || preg_match('/(?:^|,)size=(\d+(?:\.\d+)?)([KMGT])(?:,|$)/i', $disk, $match) !== 1) {
-            return null;
-        }
+        if (!is_string($disk) || preg_match('/(?:^|,)size=(\d+(?:\.\d+)?)([KMGT])(?:,|$)/i', $disk, $match) !== 1) return null;
         $value = (float) $match[1];
         $gb = match (strtoupper($match[2])) {
             'K' => $value / 1024 / 1024,

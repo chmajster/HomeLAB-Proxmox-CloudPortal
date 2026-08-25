@@ -48,15 +48,11 @@ final class PlacedCreateProcessor
     /** @param array<string,mixed> $job */
     public function reconcileFailedCreate(array $job): bool
     {
-        if ((string) ($job['type'] ?? '') !== 'vm.create.placed' || empty($job['reservation_key'])) {
-            return false;
-        }
+        if ((string) ($job['type'] ?? '') !== 'vm.create.placed' || empty($job['reservation_key'])) return false;
         $payload = $job['payload'];
         if (!empty($payload['allocated_vmid']) && !empty($payload['node_name']) && !empty($job['connection_id'])) {
             $client = $this->clients->forConnection((int) $job['connection_id']);
-            if (!$this->cleanupRemote($client, (string) $payload['node_name'], (int) $payload['allocated_vmid'])) {
-                return false;
-            }
+            if (!$this->cleanupRemote($client, (string) $payload['node_name'], (int) $payload['allocated_vmid'])) return false;
         }
         $this->releaseReservation($job);
         $this->jobs->markReconciled((int) $job['id']);
@@ -75,9 +71,7 @@ final class PlacedCreateProcessor
         $vmid = (int) ($payload['allocated_vmid'] ?? 0);
         if ($vmid <= 0) {
             $vmid = (int) $client->get('/cluster/nextid');
-            if ($vmid <= 0) {
-                throw new \RuntimeException('Proxmox did not return a valid VMID.');
-            }
+            if ($vmid <= 0) throw new \RuntimeException('Proxmox did not return a valid VMID.');
             $payload['allocated_vmid'] = $vmid;
             $job['payload'] = $payload;
             $this->jobs->payload((int) $job['id'], $payload);
@@ -96,36 +90,20 @@ final class PlacedCreateProcessor
 
         $path = '/nodes/' . rawurlencode($targetNode) . '/qemu/' . $vmid;
         $net0 = 'virtio,bridge=' . (string) $payload['bridge'];
-        if ($payload['vlan_id'] !== null) {
-            $net0 .= ',tag=' . (int) $payload['vlan_id'];
-        }
+        if ($payload['vlan_id'] !== null) $net0 .= ',tag=' . (int) $payload['vlan_id'];
         $ipConfig = 'ip=' . (string) $payload['ip_cidr'];
-        if (!empty($payload['gateway'])) {
-            $ipConfig .= ',gw=' . (string) $payload['gateway'];
-        }
-        $config = [
+        if (!empty($payload['gateway'])) $ipConfig .= ',gw=' . (string) $payload['gateway'];
+        $config = (new CloudInitRuntime())->config($client, $targetNode, $payload, [
             'cores' => (int) $payload['vcpu'],
             'memory' => (int) $payload['ram_mb'],
-            'ciuser' => (string) $payload['cloud_init_user'],
             'ipconfig0' => $ipConfig,
             'net0' => $net0,
-            'agent' => 'enabled=1',
-        ];
-        if ((string) $payload['ssh_public_key'] !== '') {
-            $config['sshkeys'] = (string) $payload['ssh_public_key'];
-        }
-        if (!empty($payload['dns_servers'])) {
-            $config['nameserver'] = str_replace(',', ' ', (string) $payload['dns_servers']);
-        }
+        ]);
         $client->put($path . '/config', $config);
         $current = $client->get($path . '/config');
         $currentDisk = is_array($current) ? $this->diskSizeGb($current['scsi0'] ?? null) : null;
-        if ($currentDisk === null) {
-            throw new \RuntimeException('The cloned VM does not expose a readable scsi0 disk size.');
-        }
-        if ($currentDisk > (int) $payload['disk_gb']) {
-            throw new InvalidArgumentException('The template scsi0 disk is larger than the selected resource plan.');
-        }
+        if ($currentDisk === null) throw new \RuntimeException('The cloned VM does not expose a readable scsi0 disk size.');
+        if ($currentDisk > (int) $payload['disk_gb']) throw new InvalidArgumentException('The template scsi0 disk is larger than the selected resource plan.');
         if ($currentDisk < (int) $payload['disk_gb']) {
             $this->wait($job, $client, $targetNode, $this->requireUpid($client->put($path . '/resize', [
                 'disk' => 'scsi0',
@@ -140,7 +118,7 @@ final class PlacedCreateProcessor
         }
 
         $vmId = $this->persist($job, $payload, $vmid, $targetNode, $status);
-        return ['virtual_machine_id' => $vmId, 'vmid' => $vmid, 'node_name' => $targetNode, 'status' => $status];
+        return ['virtual_machine_id' => $vmId, 'vmid' => $vmid, 'node_name' => $targetNode, 'status' => $status, 'cloud_init_profile_id' => $payload['cloud_init_profile_id'] ?? null];
     }
 
     /** @param array<string,mixed> $payload */
@@ -160,14 +138,15 @@ final class PlacedCreateProcessor
             }
             $statement = $pdo->prepare(
                 "INSERT INTO virtual_machines
-                 (connection_id,project_id,owner_user_id,template_id,resource_plan_id,network_id,storage_id,vmid,node_name,name,status,vcpu,ram_mb,disk_gb)
-                 VALUES (:connection,:project,:owner,:template,:plan,:network,:storage,:vmid,:node,:name,:status,:vcpu,:ram,:disk)"
+                 (connection_id,project_id,owner_user_id,template_id,resource_plan_id,network_id,storage_id,cloud_init_profile_id,vmid,node_name,name,status,vcpu,ram_mb,disk_gb)
+                 VALUES (:connection,:project,:owner,:template,:plan,:network,:storage,:cloud_profile,:vmid,:node,:name,:status,:vcpu,:ram,:disk)"
             );
             $statement->execute([
                 'connection' => $job['connection_id'], 'project' => $payload['project_id'], 'owner' => $payload['owner_user_id'],
                 'template' => $payload['template_id'], 'plan' => $payload['plan_id'], 'network' => $payload['network_id'],
-                'storage' => $payload['storage_id'], 'vmid' => $vmid, 'node' => $node, 'name' => $payload['name'],
-                'status' => $status, 'vcpu' => $payload['vcpu'], 'ram' => $payload['ram_mb'], 'disk' => $payload['disk_gb'],
+                'storage' => $payload['storage_id'], 'cloud_profile' => $payload['cloud_init_profile_id'] ?? null,
+                'vmid' => $vmid, 'node' => $node, 'name' => $payload['name'], 'status' => $status,
+                'vcpu' => $payload['vcpu'], 'ram' => $payload['ram_mb'], 'disk' => $payload['disk_gb'],
             ]);
             $vmId = (int) $pdo->lastInsertId();
             (new IPAMService($pdo))->allocate((string) $job['reservation_key'], $vmId);
@@ -179,54 +158,34 @@ final class PlacedCreateProcessor
 
     private function assertCrossNodeCloneSupported(ProxmoxClientInterface $client, string $sourceNode, string $targetNode, int $sourceVmid, string $targetStorage): void
     {
-        if ($sourceNode === $targetNode) {
-            return;
-        }
+        if ($sourceNode === $targetNode) return;
         $config = $client->get('/nodes/' . rawurlencode($sourceNode) . '/qemu/' . $sourceVmid . '/config');
-        if (!is_array($config)) {
-            throw new InvalidArgumentException('Unable to verify template storage before cross-node clone.');
-        }
+        if (!is_array($config)) throw new InvalidArgumentException('Unable to verify template storage before cross-node clone.');
         $sourceStorages = [];
         foreach ($config as $key => $value) {
-            if (preg_match('/^(?:scsi|sata|ide|virtio)\d+$/', (string) $key) !== 1 || !is_string($value)) {
-                continue;
-            }
+            if (preg_match('/^(?:scsi|sata|ide|virtio)\d+$/', (string) $key) !== 1 || !is_string($value)) continue;
             $volume = explode(',', $value, 2)[0];
-            if (!str_contains($volume, ':')) {
-                continue;
-            }
+            if (!str_contains($volume, ':')) continue;
             $storage = trim(explode(':', $volume, 2)[0]);
-            if ($storage !== '') {
-                $sourceStorages[$storage] = true;
-            }
+            if ($storage !== '') $sourceStorages[$storage] = true;
         }
-        if ($sourceStorages === []) {
-            throw new InvalidArgumentException('Template storage could not be determined for cross-node clone.');
-        }
+        if ($sourceStorages === []) throw new InvalidArgumentException('Template storage could not be determined for cross-node clone.');
         $definitions = $client->get('/storage');
-        if (!is_array($definitions)) {
-            throw new InvalidArgumentException('Unable to verify shared storage configuration.');
-        }
+        if (!is_array($definitions)) throw new InvalidArgumentException('Unable to verify shared storage configuration.');
         $shared = [];
         foreach ($definitions as $definition) {
             if (!is_array($definition) || empty($definition['storage'])) continue;
             $shared[(string) $definition['storage']] = $this->flag($definition['shared'] ?? false);
         }
         foreach (array_keys($sourceStorages) as $storage) {
-            if (!($shared[$storage] ?? false)) {
-                throw new InvalidArgumentException('Cross-node provisioning requires all template disks to be on shared storage; non-shared storage detected: ' . $storage . '.');
-            }
+            if (!($shared[$storage] ?? false)) throw new InvalidArgumentException('Cross-node provisioning requires all template disks to be on shared storage; non-shared storage detected: ' . $storage . '.');
         }
         $targetStorages = $client->get('/nodes/' . rawurlencode($targetNode) . '/storage');
-        if (!is_array($targetStorages)) {
-            throw new InvalidArgumentException('Unable to verify target-node storage availability.');
-        }
+        if (!is_array($targetStorages)) throw new InvalidArgumentException('Unable to verify target-node storage availability.');
         foreach ($targetStorages as $storage) {
             if (!is_array($storage) || (string) ($storage['storage'] ?? '') !== $targetStorage) continue;
             $content = array_map('trim', explode(',', (string) ($storage['content'] ?? '')));
-            if (($storage['active'] ?? 1) && ($storage['enabled'] ?? 1) && (in_array('images', $content, true) || $content === [''])) {
-                return;
-            }
+            if (($storage['active'] ?? 1) && ($storage['enabled'] ?? 1) && (in_array('images', $content, true) || $content === [''])) return;
         }
         throw new InvalidArgumentException('Selected target storage is unavailable for VM images on node ' . $targetNode . '.');
     }
@@ -272,17 +231,13 @@ final class PlacedCreateProcessor
     /** @param array<string,mixed> $job */
     private function wait(array $job, ProxmoxClientInterface $client, string $node, string $upid, int $timeout = 900): void
     {
-        if ((int) ($job['id'] ?? 0) > 0) {
-            $this->jobs->upid((int) $job['id'], $upid);
-        }
+        if ((int) ($job['id'] ?? 0) > 0) $this->jobs->upid((int) $job['id'], $upid);
         $client->waitForTask($node, $upid, $timeout);
     }
 
     private function diskSizeGb(mixed $disk): ?int
     {
-        if (!is_string($disk) || preg_match('/(?:^|,)size=([0-9]+(?:\.[0-9]+)?)([KMGT])(?:,|$)/i', $disk, $match) !== 1) {
-            return null;
-        }
+        if (!is_string($disk) || preg_match('/(?:^|,)size=([0-9]+(?:\.[0-9]+)?)([KMGT])(?:,|$)/i', $disk, $match) !== 1) return null;
         $value = (float) $match[1];
         $multiplier = match (strtoupper($match[2])) {
             'K' => 1 / 1024 / 1024,
@@ -301,9 +256,7 @@ final class PlacedCreateProcessor
 
     private function requireUpid(mixed $value): string
     {
-        if (!is_string($value) || !str_starts_with($value, 'UPID:')) {
-            throw new \RuntimeException('Proxmox did not return a valid task UPID.');
-        }
+        if (!is_string($value) || !str_starts_with($value, 'UPID:')) throw new \RuntimeException('Proxmox did not return a valid task UPID.');
         return $value;
     }
 }

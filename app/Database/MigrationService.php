@@ -9,7 +9,7 @@ use PDOException;
 
 final class MigrationService
 {
-    public const CURRENT_VERSION = '1.3.0';
+    public const CURRENT_VERSION = '1.5.0';
 
     public function __construct(private readonly PDO $pdo, private readonly string $directory)
     {

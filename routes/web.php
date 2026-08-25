@@ -5,6 +5,7 @@ declare(strict_types=1);
 use CloudPortal\Application;
 use CloudPortal\Controllers\AdminResourceDetailsPageController;
 use CloudPortal\Controllers\AuthController;
+use CloudPortal\Controllers\OpenApiController;
 use CloudPortal\Controllers\PortalController;
 use CloudPortal\Controllers\ProjectDetailsPageController;
 use CloudPortal\Controllers\VmDetailsPageController;
@@ -17,6 +18,7 @@ return static function (Router $router, Application $app): void {
     $proxmoxSetup = new ProxmoxSetupController($app);
     $auth = new AuthController($app);
     $portal = new PortalController($app);
+    $openApi = new OpenApiController($app);
     $adminResourceDetails = new AdminResourceDetailsPageController($app);
     $projectDetails = new ProjectDetailsPageController($app);
     $vmDetails = new VmDetailsPageController($app);
@@ -32,6 +34,7 @@ return static function (Router $router, Application $app): void {
     $router->add('GET', '/login', [$auth, 'loginPage']);
     $router->add('POST', '/login', [$auth, 'login']);
     $router->add('POST', '/logout', [$auth, 'logout']);
+    $router->add('GET', '/api/docs', [$openApi, 'docs']);
     $router->add('GET', '/', [$portal, 'home']);
     $router->add('GET', '/admin/{resource}/{id}', [$adminResourceDetails, 'show']);
     $router->add('GET', '/projects/{id}', [$projectDetails, 'show']);
