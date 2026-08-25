@@ -92,6 +92,7 @@ return static function (Router $router, Application $app): void {
     $router->add('DELETE', '/api/v1/admin/webhooks/{id}', [$webhooks, 'delete']);
     $router->add('GET', '/api/v1/admin/webhooks/{id}/deliveries', [$webhooks, 'deliveries']);
 
+    $router->add('GET', '/api/v1/admin/settings', [$dnsSettings, 'listSafe']);
     $router->add('GET', '/api/v1/admin/settings/dns', [$dnsSettings, 'show']);
     $router->add('PUT', '/api/v1/admin/settings/dns', [$dnsSettings, 'update']);
     $router->add('POST', '/api/v1/admin/settings/dns/test', [$dnsSettings, 'test']);
