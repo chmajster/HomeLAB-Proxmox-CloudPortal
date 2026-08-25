@@ -12,31 +12,71 @@ final class ProxmoxVmManager
     {
     }
 
-    /** @return array{status:array<string,mixed>,config:array<string,mixed>,snapshots:list<array<string,mixed>>} */
+    /** @return array{status:array<string,mixed>,config:array<string,mixed>,snapshots:list<array<string,mixed>>,runtime_available:bool,runtime_note:?string} */
     public function details(int $connectionId, string $node, int $vmid): array
     {
         [$client, $path] = $this->target($connectionId, $node, $vmid);
-        $status = $client->get($path . '/status/current');
+
         $config = $client->get($path . '/config');
-        $snapshots = $client->get($path . '/snapshot');
-        if (!is_array($status) || !is_array($config) || !is_array($snapshots)) {
-            throw new \RuntimeException('Proxmox returned an invalid virtual machine details response.');
+        if (!is_array($config)) {
+            throw new \RuntimeException('Proxmox returned an invalid virtual machine configuration response.');
+        }
+
+        $runtimeAvailable = true;
+        $runtimeNote = null;
+        try {
+            $status = $client->get($path . '/status/current');
+        } catch (ProxmoxException $exception) {
+            if (!$this->isNotRunning($exception)) throw $exception;
+            $runtimeAvailable = false;
+            $runtimeNote = 'Maszyna jest zatrzymana. Proxmox nie udostępnia części danych runtime dla nieuruchomionej VM; konfiguracja pozostaje dostępna.';
+            $status = [
+                'name' => (string) ($config['name'] ?? ('VM ' . $vmid)),
+                'status' => 'stopped',
+                'vmid' => $vmid,
+            ];
+        }
+        if (!is_array($status)) {
+            throw new \RuntimeException('Proxmox returned an invalid virtual machine runtime status response.');
+        }
+
+        try {
+            $snapshots = $client->get($path . '/snapshot');
+        } catch (ProxmoxException $exception) {
+            if (!$this->isNotRunning($exception)) throw $exception;
+            $runtimeAvailable = false;
+            $runtimeNote ??= 'Maszyna jest zatrzymana. Część danych zależnych od stanu runtime nie jest dostępna w Proxmox.';
+            $snapshots = [];
+        }
+        if (!is_array($snapshots)) {
+            throw new \RuntimeException('Proxmox returned an invalid virtual machine snapshot response.');
         }
 
         $safeStatus = $this->pick($status, ['name', 'status', 'qmpstatus', 'vmid', 'cpus', 'cpu', 'mem', 'maxmem', 'disk', 'maxdisk', 'uptime', 'lock', 'ha']);
+        if (!$runtimeAvailable && !isset($safeStatus['status'])) $safeStatus['status'] = 'stopped';
+        if (!$runtimeAvailable && !isset($safeStatus['vmid'])) $safeStatus['vmid'] = $vmid;
+
         $safeConfig = $this->pick($config, ['name', 'description', 'cores', 'sockets', 'memory', 'balloon', 'bios', 'machine', 'ostype', 'scsihw', 'boot', 'agent', 'onboot', 'protection', 'tags']);
         foreach ($config as $key => $value) {
             if (is_string($key) && preg_match('/^(?:scsi|sata|ide|virtio|net)\d+$/', $key) === 1 && (is_scalar($value) || $value === null)) {
                 $safeConfig[$key] = $value;
             }
         }
+
         $safeSnapshots = [];
         foreach ($snapshots as $snapshot) {
             if (!is_array($snapshot) || trim((string) ($snapshot['name'] ?? '')) === '' || ($snapshot['name'] ?? null) === 'current') continue;
             $safeSnapshots[] = $this->pick($snapshot, ['name', 'description', 'snaptime', 'parent', 'vmstate']);
         }
         usort($safeSnapshots, static fn (array $left, array $right): int => (int) ($right['snaptime'] ?? 0) <=> (int) ($left['snaptime'] ?? 0));
-        return ['status' => $safeStatus, 'config' => $safeConfig, 'snapshots' => $safeSnapshots];
+
+        return [
+            'status' => $safeStatus,
+            'config' => $safeConfig,
+            'snapshots' => $safeSnapshots,
+            'runtime_available' => $runtimeAvailable,
+            'runtime_note' => $runtimeNote,
+        ];
     }
 
     public function power(int $connectionId, string $node, int $vmid, string $action): string
@@ -102,6 +142,12 @@ final class ProxmoxVmManager
             if (array_key_exists($key, $source) && (is_scalar($source[$key]) || $source[$key] === null)) $result[$key] = $source[$key];
         }
         return $result;
+    }
+
+    private function isNotRunning(ProxmoxException $exception): bool
+    {
+        return $exception->httpStatus >= 400
+            && preg_match('/\bVM\s+\d+\s+not\s+running\b/i', $exception->getMessage()) === 1;
     }
 
     private function requireUpid(mixed $value): string
