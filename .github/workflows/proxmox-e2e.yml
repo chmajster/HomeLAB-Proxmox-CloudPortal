@@ -1,0 +1,90 @@
+name: Real Proxmox E2E
+
+on:
+  workflow_dispatch:
+    inputs:
+      confirm_destroy:
+        description: 'Type exactly: DESTROY TEST VM'
+        required: true
+        type: string
+      base_url:
+        description: 'Installed portal URL reachable from the self-hosted runner'
+        required: true
+        type: string
+      project_id:
+        description: 'Active test project ID'
+        required: true
+        type: string
+      owner_user_id:
+        description: 'Active project member user ID'
+        required: true
+        type: string
+      template_id:
+        description: 'Enabled Proxmox template profile ID'
+        required: true
+        type: string
+      plan_id:
+        description: 'Initial resource plan ID'
+        required: true
+        type: string
+      resize_plan_id:
+        description: 'Larger enabled plan with allow_resize=1'
+        required: true
+        type: string
+      network_id:
+        description: 'Enabled network assigned to the project'
+        required: true
+        type: string
+      storage_id:
+        description: 'Enabled storage assigned to the project'
+        required: true
+        type: string
+      ignore_https_errors:
+        description: 'Allow a self-signed portal HTTPS certificate'
+        required: true
+        default: false
+        type: boolean
+
+permissions:
+  contents: read
+
+concurrency:
+  group: real-proxmox-e2e
+  cancel-in-progress: false
+
+jobs:
+  lifecycle:
+    if: ${{ inputs.confirm_destroy == 'DESTROY TEST VM' }}
+    runs-on: [self-hosted, linux, x64]
+    timeout-minutes: 60
+    env:
+      PROXMOX_E2E_BASE_URL: ${{ inputs.base_url }}
+      PROXMOX_E2E_ADMIN_USER: ${{ secrets.PROXMOX_E2E_ADMIN_USER }}
+      PROXMOX_E2E_ADMIN_PASSWORD: ${{ secrets.PROXMOX_E2E_ADMIN_PASSWORD }}
+      PROXMOX_E2E_PROJECT_ID: ${{ inputs.project_id }}
+      PROXMOX_E2E_OWNER_USER_ID: ${{ inputs.owner_user_id }}
+      PROXMOX_E2E_TEMPLATE_ID: ${{ inputs.template_id }}
+      PROXMOX_E2E_PLAN_ID: ${{ inputs.plan_id }}
+      PROXMOX_E2E_RESIZE_PLAN_ID: ${{ inputs.resize_plan_id }}
+      PROXMOX_E2E_NETWORK_ID: ${{ inputs.network_id }}
+      PROXMOX_E2E_STORAGE_ID: ${{ inputs.storage_id }}
+      PROXMOX_E2E_IGNORE_HTTPS_ERRORS: ${{ inputs.ignore_https_errors }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Validate destructive test configuration
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -n "$PROXMOX_E2E_ADMIN_USER" || { echo 'Missing repository secret PROXMOX_E2E_ADMIN_USER'; exit 1; }
+          test -n "$PROXMOX_E2E_ADMIN_PASSWORD" || { echo 'Missing repository secret PROXMOX_E2E_ADMIN_PASSWORD'; exit 1; }
+          case "$PROXMOX_E2E_BASE_URL" in
+            http://*|https://*) ;;
+            *) echo 'base_url must start with http:// or https://'; exit 1 ;;
+          esac
+      - run: npm install --no-audit --no-fund
+      - run: npx playwright install --with-deps chromium
+      - name: Run real Proxmox lifecycle
+        run: npm run test:proxmox-e2e
