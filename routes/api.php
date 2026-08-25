@@ -5,6 +5,7 @@ declare(strict_types=1);
 use CloudPortal\Application;
 use CloudPortal\Controllers\AdvancedVmController;
 use CloudPortal\Controllers\AdminController;
+use CloudPortal\Controllers\AdminResourceDetailsController;
 use CloudPortal\Controllers\AuthController;
 use CloudPortal\Controllers\CatalogController;
 use CloudPortal\Controllers\DashboardController;
@@ -17,6 +18,7 @@ use CloudPortal\Controllers\QuotaAdminController;
 use CloudPortal\Controllers\ResourceController;
 use CloudPortal\Controllers\SystemController;
 use CloudPortal\Controllers\TemplateAdminController;
+use CloudPortal\Controllers\VmAssignmentAdminController;
 use CloudPortal\Controllers\VmController;
 use CloudPortal\Controllers\VmIdentityController;
 use CloudPortal\Controllers\WebhookAdminController;
@@ -28,10 +30,12 @@ return static function (Router $router, Application $app): void {
     $vms = new VmController($app);
     $advancedVms = new AdvancedVmController($app);
     $vmIdentity = new VmIdentityController($app);
+    $vmAssignment = new VmAssignmentAdminController($app);
     $jobs = new JobController($app);
     $catalog = new CatalogController($app);
     $resources = new ResourceController($app);
     $admin = new AdminController($app);
+    $adminDetails = new AdminResourceDetailsController($app);
     $projectAdmin = new ProjectAdminController($app);
     $projectCreate = new ProjectCreateController($app);
     $proxmoxAdmin = new ProxmoxAdminController($app);
@@ -76,6 +80,7 @@ return static function (Router $router, Application $app): void {
 
     $router->add('GET', '/api/v1/admin/system/health', [$system, 'adminHealth']);
     $router->add('POST', '/api/v1/admin/jobs/{jobId}/retry', [$system, 'retryJob']);
+    $router->add('GET', '/api/v1/admin/vms/{id}/assignment-options', [$vmAssignment, 'options']);
     $router->add('GET', '/api/v1/admin/proxmox/{connectionId}/placement', [$system, 'placement']);
     $router->add('GET', '/api/v1/admin/proxmox/{connectionId}/nodes/placement', [$placementAdmin, 'nodes']);
     $router->add('PATCH', '/api/v1/admin/proxmox/{connectionId}/nodes/{node}/placement', [$placementAdmin, 'updateNode']);
@@ -89,6 +94,7 @@ return static function (Router $router, Application $app): void {
     $router->add('POST', '/api/v1/admin/quotas', [$quotaAdmin, 'upsert']);
     $router->add('POST', '/api/v1/admin/quota-template-limits', [$quotaAdmin, 'upsertTemplateLimit']);
     $router->add('DELETE', '/api/v1/admin/quota-template-limits/{id}', [$quotaAdmin, 'deleteTemplateLimit']);
+    $router->add('GET', '/api/v1/admin/details/{resource}/{id}', [$adminDetails, 'show']);
     $router->add('GET', '/api/v1/admin/{resource}', [$admin, 'index']);
     $router->add('GET', '/api/v1/admin/networks/discovery', [$proxmoxAdmin, 'networkDiscovery']);
     $router->add('GET', '/api/v1/admin/storages/discovery', [$proxmoxAdmin, 'storageDiscovery']);
