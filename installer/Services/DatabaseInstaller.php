@@ -49,7 +49,20 @@ final class DatabaseInstaller
         }
 
         $databaseCreated = $this->ensureDatabaseExists($config);
-        return $this->inspectDatabase($config, $databaseCreated);
+        $result = $this->inspectDatabase($config, $databaseCreated);
+
+        // The normal installer submit performs safety checks based on this result.
+        // When the user explicitly requested a full reset, existing objects are
+        // intentionally not preserved and are removed only later by initialize().
+        if (!$connectionOnly && (bool) ($config['reset_database'] ?? false)) {
+            $result['reset_requested'] = true;
+            $result['existing_tables'] = false;
+            $result['portal_table_count'] = 0;
+            $result['compatible_portal_schema'] = true;
+            $result['warning'] = 'Wybrano wyczyszczenie bazy. Po kliknięciu „Kontynuuj” wszystkie istniejące tabele i widoki zostaną usunięte, a schemat zostanie utworzony od nowa.';
+        }
+
+        return $result;
     }
 
     /** @param array<string,mixed> $config @return array{version:string,tables:int} */
@@ -63,6 +76,10 @@ final class DatabaseInstaller
         $lock->execute(['name' => $lockName]);
         if ((int) $lock->fetchColumn() !== 1) throw new \RuntimeException('Inna sesja instalatora inicjalizuje obecnie tę bazę danych.');
         try {
+            if ((bool) ($config['reset_database'] ?? false)) {
+                $this->resetDatabase($pdo);
+            }
+
             $schema = file_get_contents($this->schemaPath);
             if (!is_string($schema) || trim($schema) === '') throw new \RuntimeException('Nie można odczytać pliku schematu bazy danych.');
             $pdo->exec($schema);
@@ -137,6 +154,38 @@ final class DatabaseInstaller
     public function tables(PDO $pdo): array
     {
         return array_map('strtolower', $pdo->query('SELECT table_name FROM information_schema.tables WHERE table_schema = DATABASE()')->fetchAll(PDO::FETCH_COLUMN));
+    }
+
+    private function resetDatabase(PDO $pdo): void
+    {
+        try {
+            $objects = $pdo->query(
+                'SELECT TABLE_NAME, TABLE_TYPE FROM information_schema.TABLES WHERE TABLE_SCHEMA = DATABASE() ORDER BY TABLE_TYPE DESC, TABLE_NAME'
+            )->fetchAll(PDO::FETCH_ASSOC);
+
+            $pdo->exec('SET FOREIGN_KEY_CHECKS=0');
+            foreach ($objects as $object) {
+                $name = $this->quoteIdentifier((string) ($object['TABLE_NAME'] ?? ''));
+                $type = strtoupper((string) ($object['TABLE_TYPE'] ?? ''));
+                if ($type === 'VIEW') {
+                    $pdo->exec("DROP VIEW IF EXISTS {$name}");
+                    continue;
+                }
+                $pdo->exec("DROP TABLE IF EXISTS {$name}");
+            }
+        } catch (\Throwable $exception) {
+            throw new \RuntimeException(
+                'Nie udało się wyczyścić bazy danych. Użytkownik musi mieć uprawnienia DROP do wszystkich istniejących tabel i widoków.',
+                0,
+                $exception,
+            );
+        } finally {
+            try {
+                $pdo->exec('SET FOREIGN_KEY_CHECKS=1');
+            } catch (\Throwable) {
+                // Preserve the original reset error if restoring the session option also fails.
+            }
+        }
     }
 
     /** @param array<string,mixed> $config @return array<string,mixed> */
@@ -246,7 +295,13 @@ final class DatabaseInstaller
         if (preg_match('/^[A-Za-z0-9_$-]{1,64}$/', $database) !== 1) {
             throw new \RuntimeException('Nazwa bazy danych jest nieprawidłowa.');
         }
-        return '`' . $database . '`';
+        return $this->quoteIdentifier($database);
+    }
+
+    private function quoteIdentifier(string $identifier): string
+    {
+        if ($identifier === '') throw new \RuntimeException('Nazwa obiektu bazy danych jest pusta.');
+        return '`' . str_replace('`', '``', $identifier) . '`';
     }
 
     private function hasSchemaMarker(PDO $pdo): bool
