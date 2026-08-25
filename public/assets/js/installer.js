@@ -63,8 +63,6 @@
     const grid = databaseName?.closest('.form-grid');
     if (!grid || document.getElementById('createDatabaseIfMissing')) return;
 
-    // Fallback for older cached installer markup. Newer wizard.php renders this
-    // checkbox server-side so the option remains visible even without JS.
     const row = document.createElement('label');
     row.className = 'check-row database-create-row';
     row.innerHTML = '<input type="hidden" name="create_database_if_missing" value="0"><input type="checkbox" value="1" id="createDatabaseIfMissing" name="create_database_if_missing" checked> <span><strong>Utwórz bazę danych, jeśli nie istnieje</strong><br>Opcja jest domyślnie włączona. „Testuj połączenie” nie tworzy bazy; utworzenie następuje dopiero po „Kontynuuj”.</span>';
@@ -132,27 +130,112 @@
   testAdministrator?.addEventListener('change', updateAdministratorMode);
   updateAdministratorMode();
 
+  function prepareProxmoxStep() {
+    if (form.dataset.step !== '5') return;
+    form.action = url('/install/proxmox');
+
+    const intro = form.querySelector('.section-intro');
+    if (intro) {
+      intro.textContent = 'Możesz użyć istniejącego tokenu API albo podać login i hasło. W trybie login/hasło przycisk testu tylko sprawdza uwierzytelnienie. Dedykowany token API zostanie utworzony dopiero po kliknięciu „Kontynuuj”, a hasło nie będzie zapisane w konfiguracji portalu.';
+    }
+
+    const tokenId = document.getElementById('api_token_id');
+    const tokenSecret = document.getElementById('api_token_secret');
+    const grid = tokenId?.closest('.form-grid');
+    if (!grid || document.getElementById('proxmoxAuthMode')) return;
+
+    const selector = document.createElement('div');
+    selector.id = 'proxmoxAuthMode';
+    selector.className = 'check-row';
+    selector.innerHTML = '<span><strong>Sposób uwierzytelnienia</strong><br><label><input type="radio" name="proxmox_auth_mode" value="token" checked> Mam już token API</label><br><label><input type="radio" name="proxmox_auth_mode" value="password"> Login i hasło — utwórz token automatycznie</label></span>';
+    grid.insertAdjacentElement('beforebegin', selector);
+
+    const usernameField = document.createElement('div');
+    usernameField.className = 'field';
+    usernameField.dataset.proxmoxPasswordField = '1';
+    usernameField.hidden = true;
+    usernameField.innerHTML = '<label for="proxmox_username">Login Proxmox</label><input id="proxmox_username" name="proxmox_username" placeholder="root@pam" autocomplete="username"><small>Najlepiej podaj pełny login z realm, np. <code>root@pam</code>.</small>';
+
+    const passwordField = document.createElement('div');
+    passwordField.className = 'field';
+    passwordField.dataset.proxmoxPasswordField = '1';
+    passwordField.hidden = true;
+    passwordField.innerHTML = '<label for="proxmox_password">Hasło Proxmox</label><input id="proxmox_password" name="proxmox_password" type="password" autocomplete="current-password"><small>Hasło służy wyłącznie do utworzenia tokenu i nie jest zapisywane.</small>';
+
+    const tokenNameField = document.createElement('div');
+    tokenNameField.className = 'field span-2';
+    tokenNameField.dataset.proxmoxPasswordField = '1';
+    tokenNameField.hidden = true;
+    tokenNameField.innerHTML = '<label for="api_token_name">Nazwa tworzonego tokenu</label><input id="api_token_name" name="api_token_name" value="cloudportal" maxlength="64"><small>Instalator utworzy token dla podanego użytkownika. Jeśli token o tej nazwie już istnieje, wybierz inną nazwę.</small>';
+
+    grid.append(usernameField, passwordField, tokenNameField);
+    tokenId.closest('.field')?.setAttribute('data-proxmox-token-field', '1');
+    tokenSecret.closest('.field')?.setAttribute('data-proxmox-token-field', '1');
+  }
+
+  prepareProxmoxStep();
+
   const proxmoxSkip = document.getElementById('skipProxmox');
-  function updateProxmoxSkip() {
+  const proxmoxAuthRadios = [...form.querySelectorAll('input[name="proxmox_auth_mode"]')];
+  function updateProxmoxMode() {
     const fields = document.getElementById('proxmoxFields');
     if (!fields || !proxmoxSkip) return;
-    fields.classList.toggle('is-skipped', proxmoxSkip.checked);
-    fields.querySelectorAll('input[required]').forEach(input => input.disabled = proxmoxSkip.checked);
+    const skipped = proxmoxSkip.checked;
+    const mode = form.querySelector('input[name="proxmox_auth_mode"]:checked')?.value || 'token';
+    const passwordMode = mode === 'password';
+
+    fields.classList.toggle('is-skipped', skipped);
+    ['connection_name', 'hostname', 'port', 'realm'].forEach(id => {
+      const input = document.getElementById(id);
+      if (!input) return;
+      input.disabled = skipped;
+      input.required = !skipped;
+    });
+
+    fields.querySelectorAll('[data-proxmox-token-field]').forEach(wrapper => {
+      wrapper.hidden = passwordMode;
+      wrapper.querySelectorAll('input').forEach(input => {
+        input.disabled = skipped || passwordMode;
+        input.required = !skipped && !passwordMode;
+      });
+    });
+    fields.querySelectorAll('[data-proxmox-password-field]').forEach(wrapper => {
+      wrapper.hidden = !passwordMode;
+      wrapper.querySelectorAll('input').forEach(input => {
+        input.disabled = skipped || !passwordMode;
+        input.required = !skipped && passwordMode;
+      });
+    });
+
+    const verify = document.getElementById('verify_ssl');
+    if (verify) verify.disabled = skipped;
+    const testButton = document.getElementById('testProxmox');
+    if (testButton && !testButton.classList.contains('is-loading')) testButton.disabled = skipped;
   }
-  proxmoxSkip?.addEventListener('change', updateProxmoxSkip);
-  updateProxmoxSkip();
+  proxmoxSkip?.addEventListener('change', updateProxmoxMode);
+  proxmoxAuthRadios.forEach(radio => radio.addEventListener('change', updateProxmoxMode));
+  updateProxmoxMode();
 
   const proxmoxButton = document.getElementById('testProxmox');
   proxmoxButton?.addEventListener('click', async () => {
     const output = document.getElementById('proxmoxResult');
+    const mode = form.querySelector('input[name="proxmox_auth_mode"]:checked')?.value || 'token';
     busy(proxmoxButton, true);
-    showResult(output, 'loading', 'Łączenie z API Proxmox…');
+    showResult(output, 'loading', mode === 'password'
+      ? 'Sprawdzanie loginu i hasła w Proxmox…'
+      : 'Łączenie z API Proxmox za pomocą tokenu…');
     try {
       const data = await post('/install/test/proxmox', values());
-      showResult(output, 'success', `<strong>Połączenie działa.</strong><dl><div><dt>Klaster</dt><dd>${escape(data.cluster)}</dd></div><div><dt>Węzły</dt><dd>${escape(data.nodes)}</dd></div><div><dt>Proxmox VE</dt><dd>${escape(data.version)}</dd></div><div><dt>Storage</dt><dd>${escape(data.storages)}</dd></div></dl>`);
+      const note = data.auth_mode === 'password'
+        ? '<p><strong>Login i hasło są prawidłowe.</strong> Test nie utworzył tokenu. Token zostanie utworzony dopiero po kliknięciu „Kontynuuj”.</p>'
+        : '<p>Istniejący token API został zaakceptowany.</p>';
+      showResult(output, 'success', `<strong>Połączenie działa.</strong>${note}<dl><div><dt>Klaster</dt><dd>${escape(data.cluster)}</dd></div><div><dt>Węzły</dt><dd>${escape(data.nodes)}</dd></div><div><dt>Proxmox VE</dt><dd>${escape(data.version)}</dd></div><div><dt>Storage</dt><dd>${escape(data.storages)}</dd></div>${data.username ? `<div><dt>Użytkownik</dt><dd>${escape(data.username)}</dd></div>` : ''}</dl>`);
     } catch (error) {
       showResult(output, 'error', `<strong>Test nie powiódł się.</strong><p>${escape(error.message)}</p>`);
-    } finally { busy(proxmoxButton, false); }
+    } finally {
+      busy(proxmoxButton, false);
+      updateProxmoxMode();
+    }
   });
 
   const recheck = document.getElementById('recheckRequirements');
