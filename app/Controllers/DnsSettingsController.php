@@ -31,6 +31,35 @@ final class DnsSettingsController
         return Response::json(['data' => $rows]);
     }
 
+    public function upsertSafe(Request $request): Response
+    {
+        $this->app->csrf->verify($request);
+        $this->app->auth()->requirePermission('admin.access');
+        $key = trim((string) $request->input('key'));
+        if (preg_match('/^[a-z][a-z0-9_.-]{1,99}$/', $key) !== 1) {
+            throw new HttpException(422, 'Invalid setting key.');
+        }
+        if (str_starts_with($key, 'dns.') || $key === 'hostname_generator.pattern') {
+            throw new HttpException(409, 'Ustawienia DNS i generatora hostname zmieniaj w dedykowanej sekcji Integracja DNS.');
+        }
+        $value = $request->input('value');
+        if ($key === 'portal.name' && (!is_string($value) || trim($value) === '' || mb_strlen($value) > 100)) {
+            throw new HttpException(422, 'portal.name must be a non-empty string of at most 100 characters.');
+        }
+        $statement = $this->app->pdo()->prepare(
+            'INSERT INTO settings(setting_key,value,is_public,updated_by) VALUES(:key,:value,:public,:user) '
+            . 'ON DUPLICATE KEY UPDATE value=VALUES(value),is_public=VALUES(is_public),updated_by=VALUES(updated_by),updated_at=CURRENT_TIMESTAMP'
+        );
+        $statement->execute([
+            'key' => $key,
+            'value' => json_encode($value, JSON_THROW_ON_ERROR | JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE),
+            'public' => (int) filter_var($request->input('is_public', false), FILTER_VALIDATE_BOOL),
+            'user' => $this->app->auth()->id(),
+        ]);
+        $this->app->audit()->log($this->app->auth()->id(), $request->ip(), 'admin.settings.create', 'success', 'settings', $key);
+        return Response::json(['data' => ['id' => $key]], 201);
+    }
+
     public function show(Request $request): Response
     {
         $this->app->auth()->requirePermission('admin.access');
