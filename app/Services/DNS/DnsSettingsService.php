@@ -21,9 +21,14 @@ final class DnsSettingsService
     public function publicConfiguration(): array
     {
         $config = $this->configuration();
+        $tokenConfigured = (string) $config['api_token_encrypted'] !== '';
+        $configured = $config['enabled'] === true
+            && filter_var($config['server_ip'], FILTER_VALIDATE_IP) !== false
+            && $tokenConfigured
+            && $config['hostname_pattern'] !== '';
         unset($config['api_token_encrypted']);
-        $config['token_configured'] = $this->tokenConfigured();
-        $config['configured'] = $this->configured();
+        $config['token_configured'] = $tokenConfigured;
+        $config['configured'] = $configured;
         return $config;
     }
 
@@ -74,7 +79,10 @@ final class DnsSettingsService
             throw new \RuntimeException('DNS secret decryption is not available in this context.');
         }
         $config = $this->configuration();
-        if (!$this->configured()) {
+        if ($config['enabled'] !== true
+            || filter_var($config['server_ip'], FILTER_VALIDATE_IP) === false
+            || $config['api_token_encrypted'] === ''
+            || $config['hostname_pattern'] === '') {
             throw new \RuntimeException('DNS integration is not fully configured.');
         }
         $token = $this->crypto->decrypt((string) $config['api_token_encrypted']);
@@ -103,14 +111,30 @@ final class DnsSettingsService
             throw new \InvalidArgumentException('API token DNS jest wymagany, gdy integracja jest włączona.');
         }
 
-        $this->upsert('dns.enabled', $normalized['enabled'], $userId);
-        $this->upsert('dns.server_ip', $normalized['server_ip'], $userId);
-        $this->upsert('dns.port', $normalized['port'], $userId);
-        $this->upsert('dns.scheme', $normalized['scheme'], $userId);
-        $this->upsert('dns.forward_zone', $normalized['forward_zone'], $userId);
-        $this->upsert('hostname_generator.pattern', $normalized['hostname_pattern'], $userId);
-        if ($newToken !== '') {
-            $this->upsert('dns.api_token_encrypted', $encrypted, $userId);
+        $ownTransaction = !$this->pdo->inTransaction();
+        if ($ownTransaction) {
+            $this->pdo->beginTransaction();
+        }
+        try {
+            $this->upsert('dns.enabled', $normalized['enabled'], $userId);
+            $this->upsert('dns.server_ip', $normalized['server_ip'], $userId);
+            $this->upsert('dns.port', $normalized['port'], $userId);
+            $this->upsert('dns.scheme', $normalized['scheme'], $userId);
+            $this->upsert('dns.forward_zone', $normalized['forward_zone'], $userId);
+            $this->upsert('hostname_generator.pattern', $normalized['hostname_pattern'], $userId);
+            if ($encrypted !== '') {
+                // Also persists a token inherited from legacy runtime.php so the
+                // first panel save migrates DNS settings to the database.
+                $this->upsert('dns.api_token_encrypted', $encrypted, $userId);
+            }
+            if ($ownTransaction) {
+                $this->pdo->commit();
+            }
+        } catch (\Throwable $exception) {
+            if ($ownTransaction && $this->pdo->inTransaction()) {
+                $this->pdo->rollBack();
+            }
+            throw $exception;
         }
 
         return $this->publicConfiguration();
@@ -136,11 +160,6 @@ final class DnsSettingsService
             (string) $normalized['scheme'],
         );
         return $client->testConnection($normalized['forward_zone'] === '' ? null : (string) $normalized['forward_zone']);
-    }
-
-    private function tokenConfigured(): bool
-    {
-        return (string) $this->configuration()['api_token_encrypted'] !== '';
     }
 
     /** @param array<string,mixed> $input @param array<string,mixed> $current @return array<string,mixed> */
