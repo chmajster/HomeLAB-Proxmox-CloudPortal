@@ -196,6 +196,24 @@ final class ManagedCreateProcessor
     private function cleanupPreVmFailure(int $jobId, array $job, string $message, bool $markJob = true): void
     {
         $stateRepository = new ProvisioningStateRepository($this->database->pdo());
+
+        // Fail closed: a reservation must never be released while a VM with this
+        // provisioning hostname may still exist. An API error is also treated as
+        // "unknown", therefore resources stay reserved for reconciliation.
+        if ($this->remoteVmExistsOrUnknown($job)) {
+            try {
+                $stateRepository->rollbackFailed(
+                    $jobId,
+                    $message . ' Proxmox VM absence could not be proven; IP and DNS were retained for reconciliation.',
+                );
+            } catch (Throwable) {
+            }
+            if ($markJob) {
+                $this->jobs->failPermanent($jobId, $message);
+            }
+            return;
+        }
+
         try {
             $state = $stateRepository->forJob($jobId);
             if (!empty($state['ptr_record_id']) && !empty($state['reverse_zone'])) {
@@ -214,6 +232,32 @@ final class ManagedCreateProcessor
         }
         if ($markJob) {
             $this->jobs->failPermanent($jobId, $message);
+        }
+    }
+
+    /** @param array<string,mixed> $job */
+    private function remoteVmExistsOrUnknown(array $job): bool
+    {
+        $payload = is_array($job['payload'] ?? null) ? $job['payload'] : [];
+        $name = trim((string) ($payload['name'] ?? ''));
+        if ($name === '' || empty($job['connection_id'])) {
+            return true;
+        }
+
+        try {
+            $client = $this->clients->forConnection((int) $job['connection_id']);
+            $resources = $client->get('/cluster/resources', ['type' => 'vm']);
+            if (!is_array($resources)) {
+                return true;
+            }
+            foreach ($resources as $resource) {
+                if (is_array($resource) && (string) ($resource['name'] ?? '') === $name) {
+                    return true;
+                }
+            }
+            return false;
+        } catch (Throwable) {
+            return true;
         }
     }
 
