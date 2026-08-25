@@ -5,7 +5,7 @@ declare(strict_types=1);
 
 use CloudPortal\Application;
 use CloudPortal\Database\Database;
-use CloudPortal\Services\DNS\DnsApiClient;
+use CloudPortal\Services\DNS\DnsSettingsService;
 use CloudPortal\Services\Notifications\WebhookService;
 use CloudPortal\Services\Observability\WorkerHeartbeatService;
 use CloudPortal\Services\Provisioning\AdvancedJobProcessor;
@@ -43,31 +43,29 @@ $terraformCreate = new TerraformProvisioner(
     (string) $app->config->get('provisioning.terraform_command', '/usr/local/sbin/algen-terraform-provisioner'),
     (int) $app->config->get('provisioning.terraform_timeout', 1200),
 );
-$managedCreate = null;
-$dnsServer = trim((string) $app->config->get('dns.server_ip', ''));
-$dnsTokenEncrypted = trim((string) $app->config->get('dns.api_token_encrypted', ''));
-if ($dnsServer !== '' && $dnsTokenEncrypted !== '') {
-    $managedCreate = new ManagedCreateProcessor(
+
+$managedProcessor = static function () use ($database, $clients, $jobs, $app, $provisioner, $placedCreate, $terraformCreate): ?ManagedCreateProcessor {
+    $dns = new DnsSettingsService($database->pdo(), $app->crypto(), $app->config);
+    if (!$dns->configured()) {
+        return null;
+    }
+    return new ManagedCreateProcessor(
         $database,
         $clients,
         $jobs,
         $app->audit(),
-        new DnsApiClient(
-            $dnsServer,
-            $app->crypto()->decrypt($dnsTokenEncrypted),
-            (int) $app->config->get('dns.port', 81),
-            (string) $app->config->get('dns.scheme', 'http'),
-        ),
+        $dns->client(),
         $provisioner,
         $placedCreate,
-        ($zone = trim((string) $app->config->get('dns.forward_zone', ''))) === '' ? null : $zone,
+        $dns->forwardZone(),
         (string) $app->config->get('provisioning.vm_setup_command', '/root/vm-setup.sh'),
         (string) $app->config->get('provisioning.puppet_command', 'puppet agent --test'),
         (int) $app->config->get('provisioning.guest_agent_timeout', 300),
         (int) $app->config->get('provisioning.guest_command_timeout', 900),
         $terraformCreate,
     );
-}
+};
+
 $heartbeat = new WorkerHeartbeatService($database->pdo(), (string) ($argv[0] ?? 'cloud-worker') . '@' . (gethostname() ?: 'unknown'), Application::VERSION);
 $webhooks = new WebhookService($database->pdo(), $app->crypto());
 $heartbeat->beat();
@@ -132,8 +130,13 @@ do {
         continue;
     }
     try {
-        if ($managedCreate instanceof ManagedCreateProcessor && $managedCreate->supports($job)) {
-            $managedCreate->process($job);
+        if (($job['payload']['managed_provisioning'] ?? false) === true) {
+            $processor = $managedProcessor();
+            if (!$processor instanceof ManagedCreateProcessor) {
+                $jobs->failPermanent((int) $job['id'], 'Managed provisioning requires an enabled and complete DNS configuration. VM creation was not started.');
+            } else {
+                $processor->process($job);
+            }
         } elseif ((string) $job['type'] === 'vm.create.placed') {
             $placedCreate->process($job);
         } elseif ($identity->supports((string) $job['type'])) {
