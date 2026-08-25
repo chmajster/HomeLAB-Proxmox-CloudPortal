@@ -5,7 +5,7 @@ $steps = [
     6 => 'Portal', 9 => 'Instalacja',
 ];
 $titles = [
-    0 => 'Witaj w instalatorze', 1 => 'Kontrola środowiska', 2 => 'Połączenie z bazą danych',
+    0 => 'Witaj w instalatorze', 1 => 'Kontrola środowiska', 2 => 'Konfiguracja bazy danych',
     4 => 'Pierwszy administrator', 5 => 'Połączenie Proxmox', 6 => 'Konfiguracja portalu',
     9 => 'Instalowanie portalu',
 ];
@@ -82,7 +82,7 @@ $icon = static fn (string $name, string $class = 'ui-icon'): string => '<svg cla
             <p>Ten kreator skonfiguruje portal podobnie jak instalator WordPress — bez ręcznego importowania SQL i bez edycji plików konfiguracyjnych.</p>
             <h2>Przygotuj:</h2>
             <ul class="installer-list">
-              <li>dane pustej bazy MariaDB lub MySQL,</li>
+              <li>dane serwera MariaDB lub MySQL; baza może zostać utworzona automatycznie,</li>
               <li>nazwę i silne hasło administratora; e-mail jest opcjonalny,</li>
               <li>opcjonalnie token API Proxmox (można dodać go później),</li>
               <li>nazwę i publiczny adres portalu.</li>
@@ -105,16 +105,23 @@ $icon = static fn (string $name, string $class = 'ui-icon'): string => '<svg cla
           <?php if (!$review): ?><button class="btn btn-outline-primary" type="button" id="recheckRequirements"><?= $icon('refresh') ?>Sprawdź ponownie</button><?php endif; ?>
 
         <?php elseif ($step === 2): ?>
-          <p class="section-intro">Przycisk testu wykona prawdziwe połączenie PDO i sprawdzi uprawnienie tworzenia tabel. Po wybraniu „Kontynuuj” wersjonowany schemat zostanie utworzony automatycznie — bez dodatkowego ekranu.</p>
+          <p class="section-intro">Podaj adres serwera MariaDB/MySQL i dane logowania. Nazwa bazy jest opcjonalna — puste pole oznacza bazę <code>cloudportal</code> po kliknięciu „Kontynuuj”. Przycisk „Testuj połączenie” nigdy nie usuwa ani nie tworzy tabel.</p>
           <div class="form-grid">
             <div class="field span-2"><label for="db_driver">Typ bazy</label><select id="db_driver" name="db_driver"><option value="mysql">MariaDB / MySQL</option></select></div>
             <div class="field"><label for="db_host">Host bazy</label><input class="<?= $invalid('db_host') ?>" id="db_host" name="db_host" value="<?= $escape($values['db_host'] ?? '') ?>" required><?= $errorFor('db_host') ?></div>
             <div class="field"><label for="db_port">Port</label><input class="<?= $invalid('db_port') ?>" id="db_port" name="db_port" type="number" min="1" max="65535" value="<?= $escape($values['db_port'] ?? 3306) ?>" required><?= $errorFor('db_port') ?></div>
-            <div class="field span-2"><label for="db_name">Nazwa istniejącej bazy</label><input class="<?= $invalid('db_name') ?>" id="db_name" name="db_name" value="<?= $escape($values['db_name'] ?? '') ?>" required><?= $errorFor('db_name') ?></div>
+            <div class="field span-2"><label for="db_name">Nazwa bazy danych (opcjonalnie)</label><input class="<?= $invalid('db_name') ?>" id="db_name" name="db_name" value="<?= $escape($values['db_name'] ?? '') ?>" placeholder="cloudportal" aria-description="Pozostaw puste, aby użyć domyślnej nazwy cloudportal po kliknięciu Kontynuuj."><?= $errorFor('db_name') ?><small>Puste pole = <code>cloudportal</code> podczas kontynuowania instalacji.</small></div>
             <div class="field"><label for="db_user">Użytkownik</label><input class="<?= $invalid('db_user') ?>" id="db_user" name="db_user" value="<?= $escape($values['db_user'] ?? '') ?>" autocomplete="username" required><?= $errorFor('db_user') ?></div>
             <div class="field"><label for="db_password">Hasło</label><input id="db_password" name="db_password" type="password" autocomplete="new-password"></div>
           </div>
-          <label class="check-row"><input type="checkbox" value="1" name="confirm_existing_database"<?= $checked((bool) ($values['confirm_existing_database'] ?? false)) ?>> <span>Potwierdzam użycie niepustej bazy. Kreator zachowa wszystkie istniejące tabele.</span></label>
+
+          <input type="hidden" name="create_database_if_missing" value="0">
+          <label class="check-row database-create-row"><input type="checkbox" value="1" id="createDatabaseIfMissing" name="create_database_if_missing"<?= $checked(!array_key_exists('create_database_if_missing', $values) || (bool) $values['create_database_if_missing']) ?>> <span><strong>Utwórz bazę danych, jeśli nie istnieje</strong><br>Domyślnie włączone. Podczas „Testuj połączenie” nie tworzy bazy; utworzenie następuje dopiero po „Kontynuuj”.</span></label>
+
+          <input type="hidden" name="reset_database" value="0">
+          <label class="check-row database-reset-row"><input type="checkbox" value="1" id="resetDatabase" name="reset_database"<?= $checked((bool) ($values['reset_database'] ?? false)) ?>> <span><strong>Wyczyść bazę danych i utwórz schemat od nowa</strong><br><strong>Uwaga: operacja destrukcyjna.</strong> Po kliknięciu „Kontynuuj” wszystkie istniejące tabele, widoki i zapisane w nich dane w wybranej bazie zostaną usunięte. Następnie instalator ponownie utworzy pełny schemat i wykona migracje. Opcja wymaga uprawnienia <code>DROP</code>.</span></label>
+
+          <label class="check-row"><input type="checkbox" value="1" id="confirmExistingDatabase" name="confirm_existing_database"<?= $checked((bool) ($values['confirm_existing_database'] ?? false)) ?>> <span>Potwierdzam użycie niepustej bazy bez jej czyszczenia. Kreator zachowa wszystkie istniejące tabele.</span></label>
           <?php if (!$review): ?><button class="btn btn-outline-primary test-button" type="button" id="testDatabase"><?= $icon('database') ?>Testuj połączenie</button><?php endif; ?>
           <div class="connection-result" id="databaseResult" aria-live="polite"></div>
 

@@ -48,7 +48,7 @@
 
     const intro = form.querySelector('.section-intro');
     if (intro) {
-      intro.textContent = 'Podaj adres serwera MariaDB/MySQL i dane logowania. Nazwa bazy jest opcjonalna: jeśli pozostawisz ją pustą, test sprawdzi tylko połączenie z serwerem, a po kliknięciu „Kontynuuj” instalator użyje nazwy „cloudportal” i utworzy tę bazę, jeśli nie istnieje.';
+      intro.textContent = 'Podaj adres serwera MariaDB/MySQL i dane logowania. Nazwa bazy jest opcjonalna: puste pole oznacza „cloudportal” po kliknięciu „Kontynuuj”. „Testuj połączenie” jest niedestrukcyjny. Opcjonalne wyczyszczenie bazy następuje wyłącznie po „Kontynuuj”.';
     }
 
     const databaseName = document.getElementById('db_name');
@@ -63,13 +63,26 @@
     const grid = databaseName?.closest('.form-grid');
     if (!grid || document.getElementById('createDatabaseIfMissing')) return;
 
+    // Fallback for older cached installer markup. Newer wizard.php renders this
+    // checkbox server-side so the option remains visible even without JS.
     const row = document.createElement('label');
     row.className = 'check-row database-create-row';
-    row.innerHTML = '<input type="hidden" name="create_database_if_missing" value="0"><input type="checkbox" value="1" id="createDatabaseIfMissing" name="create_database_if_missing" checked> <span><strong>Utwórz bazę danych, jeśli nie istnieje</strong><br>Opcja jest domyślnie włączona. „Testuj połączenie” sprawdzi wtedy tylko dostęp do serwera MariaDB/MySQL i poprawność loginu/hasła. Jeśli nazwa bazy pozostanie pusta, test również sprawdzi tylko serwer, a po „Kontynuuj” zostanie użyta domyślna nazwa <code>cloudportal</code>.</span>';
+    row.innerHTML = '<input type="hidden" name="create_database_if_missing" value="0"><input type="checkbox" value="1" id="createDatabaseIfMissing" name="create_database_if_missing" checked> <span><strong>Utwórz bazę danych, jeśli nie istnieje</strong><br>Opcja jest domyślnie włączona. „Testuj połączenie” nie tworzy bazy; utworzenie następuje dopiero po „Kontynuuj”.</span>';
     grid.insertAdjacentElement('afterend', row);
   }
 
   prepareDatabaseStep();
+
+  const resetDatabase = document.getElementById('resetDatabase');
+  const confirmExistingDatabase = document.getElementById('confirmExistingDatabase');
+  function updateDatabaseResetMode() {
+    if (!resetDatabase || !confirmExistingDatabase) return;
+    if (resetDatabase.checked) confirmExistingDatabase.checked = false;
+    confirmExistingDatabase.disabled = resetDatabase.checked;
+    confirmExistingDatabase.closest('.check-row')?.classList.toggle('is-skipped', resetDatabase.checked);
+  }
+  resetDatabase?.addEventListener('change', updateDatabaseResetMode);
+  updateDatabaseResetMode();
 
   const dbButton = document.getElementById('testDatabase');
   dbButton?.addEventListener('click', async () => {
@@ -78,6 +91,7 @@
     const databaseName = (document.getElementById('db_name')?.value || '').trim();
     const databaseNameBlank = databaseName === '';
     const serverOnly = createIfMissing || databaseNameBlank;
+    const resetRequested = document.getElementById('resetDatabase')?.checked ?? false;
 
     busy(dbButton, true, 'Sprawdzanie…');
     showResult(output, 'loading', serverOnly
@@ -89,15 +103,17 @@
       const data = await post('/install/test/database', request);
 
       if (data.database_check_skipped) {
-        const explanation = databaseNameBlank
+        let explanation = databaseNameBlank
           ? 'Pole „Nazwa bazy danych” jest puste, dlatego test celowo sprawdził tylko serwer i dane logowania. Po kliknięciu „Kontynuuj” instalator użyje nazwy <code>cloudportal</code> i utworzy tę bazę, jeśli nie istnieje.'
           : `Ponieważ zaznaczono automatyczne tworzenie bazy, test celowo nie sprawdza, czy baza <code>${escape(data.database_name)}</code> już istnieje. Baza zostanie sprawdzona i w razie potrzeby utworzona po kliknięciu „Kontynuuj”.`;
+        if (resetRequested) explanation += ' Zaznaczone czyszczenie bazy również nie jest wykonywane podczas testu — uruchomi się dopiero po „Kontynuuj”.';
         showResult(output, 'success', `<strong>Połączenie z serwerem MariaDB/MySQL działa.</strong><p>Login i hasło zostały zaakceptowane. ${explanation}</p><dl><div><dt>Serwer</dt><dd>${escape(data.server_version)}</dd></div><div><dt>Zakres testu</dt><dd>serwer + dane logowania</dd></div></dl>`);
         return;
       }
 
       const warning = data.warning ? `<p class="result-warning">${escape(data.warning)}</p>` : '';
-      showResult(output, 'success', `<strong>Połączenie z wybraną bazą danych działa.</strong><p>Baza istnieje i użytkownik może tworzyć w niej tabele.</p><dl><div><dt>Serwer</dt><dd>${escape(data.server_version)}</dd></div><div><dt>Kodowanie</dt><dd>${escape(data.charset)}</dd></div><div><dt>Sortowanie</dt><dd>${escape(data.collation)}</dd></div><div><dt>Liczba tabel</dt><dd>${escape(data.table_count)}</dd></div></dl>${warning}`);
+      const resetNote = resetRequested ? '<p class="result-warning"><strong>Czyszczenie nie zostało jeszcze wykonane.</strong> Wszystkie tabele i widoki zostaną usunięte dopiero po kliknięciu „Kontynuuj”.</p>' : '';
+      showResult(output, 'success', `<strong>Połączenie z wybraną bazą danych działa.</strong><p>Baza istnieje i użytkownik może tworzyć w niej tabele.</p>${resetNote}<dl><div><dt>Serwer</dt><dd>${escape(data.server_version)}</dd></div><div><dt>Kodowanie</dt><dd>${escape(data.charset)}</dd></div><div><dt>Sortowanie</dt><dd>${escape(data.collation)}</dd></div><div><dt>Liczba tabel</dt><dd>${escape(data.table_count)}</dd></div></dl>${warning}`);
     } catch (error) {
       showResult(output, 'error', `<strong>Sprawdzenie bazy nie powiodło się.</strong><p>${escape(error.message)}</p>`);
     } finally { busy(dbButton, false); }

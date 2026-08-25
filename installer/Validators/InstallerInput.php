@@ -6,7 +6,7 @@ namespace CloudPortal\Installer\Validators;
 
 final class InstallerInput
 {
-    /** @param array<string,mixed> $input @return array{driver:string,host:string,port:int,name:string,user:string,password:string,create_if_missing:bool,connection_test_only:bool,confirm_existing:bool} */
+    /** @param array<string,mixed> $input @return array{driver:string,host:string,port:int,name:string,user:string,password:string,create_if_missing:bool,connection_test_only:bool,reset_database:bool,confirm_existing:bool} */
     public static function database(array $input): array
     {
         $driver = (string) ($input['db_driver'] ?? 'mysql');
@@ -49,6 +49,7 @@ final class InstallerInput
             'user' => $user, 'password' => (string) ($input['db_password'] ?? ''),
             'create_if_missing' => $createIfMissing,
             'connection_test_only' => $connectionTestOnly,
+            'reset_database' => filter_var($input['reset_database'] ?? false, FILTER_VALIDATE_BOOL),
             'confirm_existing' => filter_var($input['confirm_existing_database'] ?? false, FILTER_VALIDATE_BOOL),
         ];
     }
