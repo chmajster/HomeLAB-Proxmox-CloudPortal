@@ -18,11 +18,7 @@ final class HostnameGenerator
         $user = $this->value('SELECT username FROM users WHERE id=:id', $userId, 'user-' . $userId);
         $counter = $this->nextCounter($projectId);
 
-        $hostname = strtr($this->pattern, [
-            '{project}' => $this->label($project, 'project-' . $projectId),
-            '{user}' => $this->label($user, 'user-' . $userId),
-            '{counter}' => (string) $counter,
-        ]);
+        $hostname = $this->expandPattern($project, $user, $counter);
         $hostname = $this->label($hostname, 'vm-' . $counter);
 
         if (strlen($hostname) > 63) {
@@ -33,6 +29,39 @@ final class HostnameGenerator
             throw new \RuntimeException('Generated hostname is not a valid DNS/Proxmox hostname label.');
         }
         return $hostname;
+    }
+
+    private function expandPattern(string $project, string $user, int $counter): string
+    {
+        $replacements = [
+            'project' => $this->label($project, 'project'),
+            'user' => $this->label($user, 'user'),
+            'counter' => (string) $counter,
+        ];
+        $seenCounter = false;
+        $expanded = preg_replace_callback(
+            '/\{(project|user|counter)(?::0([1-9][0-9]?))?\}/',
+            static function (array $match) use ($replacements, $counter, &$seenCounter): string {
+                $name = (string) $match[1];
+                $width = isset($match[2]) ? (int) $match[2] : 0;
+                if ($name !== 'counter' && $width > 0) {
+                    throw new \RuntimeException('Width formatting is supported only for {counter:0N}.');
+                }
+                if ($name === 'counter') {
+                    $seenCounter = true;
+                    return $width > 0 ? str_pad((string) $counter, $width, '0', STR_PAD_LEFT) : (string) $counter;
+                }
+                return $replacements[$name];
+            },
+            $this->pattern,
+        );
+        if (!is_string($expanded) || !$seenCounter) {
+            throw new \RuntimeException('Hostname generator pattern must contain {counter} or {counter:0N}.');
+        }
+        if (preg_match('/[{}]/', $expanded) === 1) {
+            throw new \RuntimeException('Hostname generator pattern contains an unsupported placeholder.');
+        }
+        return $expanded;
     }
 
     private function nextCounter(int $projectId): int

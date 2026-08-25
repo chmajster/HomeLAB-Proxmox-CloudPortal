@@ -13,6 +13,7 @@ use CloudPortal\Services\Provisioning\JobRepository;
 use CloudPortal\Services\Provisioning\ManagedCreateProcessor;
 use CloudPortal\Services\Provisioning\PlacedCreateProcessor;
 use CloudPortal\Services\Provisioning\ProxmoxProvisioner;
+use CloudPortal\Services\Provisioning\TerraformProvisioner;
 use CloudPortal\Services\Provisioning\VmIdentityJobProcessor;
 use CloudPortal\Services\Proxmox\ProxmoxClientFactory;
 
@@ -31,6 +32,12 @@ $provisioner = new ProxmoxProvisioner($database, $clients, $jobs, $app->audit())
 $advanced = new AdvancedJobProcessor($database, $clients, $jobs, $app->audit());
 $placedCreate = new PlacedCreateProcessor($database, $clients, $jobs, $app->audit());
 $identity = new VmIdentityJobProcessor($database, $clients, $jobs, $app->audit());
+$terraformCreate = new TerraformProvisioner(
+    $database,
+    $jobs,
+    (string) $app->config->get('provisioning.terraform_command', '/usr/local/sbin/algen-terraform-provisioner'),
+    (int) $app->config->get('provisioning.terraform_timeout', 1200),
+);
 $managedCreate = null;
 $dnsServer = trim((string) $app->config->get('dns.server_ip', ''));
 $dnsTokenEncrypted = trim((string) $app->config->get('dns.api_token_encrypted', ''));
@@ -49,10 +56,11 @@ if ($dnsServer !== '' && $dnsTokenEncrypted !== '') {
         $provisioner,
         $placedCreate,
         ($zone = trim((string) $app->config->get('dns.forward_zone', ''))) === '' ? null : $zone,
-        (string) $app->config->get('provisioning.vm_setup_command', '/usr/local/sbin/vm-setup.sh'),
+        (string) $app->config->get('provisioning.vm_setup_command', '/root/vm-setup.sh'),
         (string) $app->config->get('provisioning.puppet_command', 'puppet agent --test'),
         (int) $app->config->get('provisioning.guest_agent_timeout', 300),
         (int) $app->config->get('provisioning.guest_command_timeout', 900),
+        $terraformCreate,
     );
 }
 $heartbeat = new WorkerHeartbeatService($database->pdo(), (string) ($argv[0] ?? 'cloud-worker') . '@' . (gethostname() ?: 'unknown'), Application::VERSION);

@@ -188,17 +188,26 @@ final class JsonInstallationConfig
         if ($pattern === '' || strlen($pattern) > 128) {
             throw new \RuntimeException('hostname_generator.pattern must contain 1-128 characters.');
         }
-        if (preg_match('/^[A-Za-z0-9._{}-]+$/', $pattern) !== 1) {
+        if (preg_match('/^[A-Za-z0-9._:{}-]+$/', $pattern) !== 1) {
             throw new \RuntimeException('hostname_generator.pattern contains unsupported characters.');
         }
-        preg_match_all('/\{([A-Za-z0-9_]+)\}/', $pattern, $matches);
-        foreach ($matches[1] as $placeholder) {
+        preg_match_all('/\{([A-Za-z0-9_]+)(?::0([1-9][0-9]?))?\}/', $pattern, $matches, PREG_SET_ORDER);
+        foreach ($matches as $match) {
+            $placeholder = (string) $match[1];
+            $width = isset($match[2]) && $match[2] !== '' ? (int) $match[2] : 0;
             if (!in_array($placeholder, ['project', 'user', 'counter'], true)) {
                 throw new \RuntimeException("hostname_generator.pattern contains unsupported placeholder {{$placeholder}}.");
             }
+            if ($width > 0 && $placeholder !== 'counter') {
+                throw new \RuntimeException('hostname_generator.pattern width formatting is supported only for counter.');
+            }
         }
-        if (!str_contains($pattern, '{counter}')) {
-            throw new \RuntimeException('hostname_generator.pattern must contain {counter} to keep generated hostnames unique.');
+        $withoutKnown = preg_replace('/\{(?:project|user|counter)(?::0[1-9][0-9]?)?\}/', '', $pattern);
+        if (!is_string($withoutKnown) || preg_match('/[{}]/', $withoutKnown) === 1) {
+            throw new \RuntimeException('hostname_generator.pattern contains an unsupported placeholder.');
+        }
+        if (preg_match('/\{counter(?::0[1-9][0-9]?)?\}/', $pattern) !== 1) {
+            throw new \RuntimeException('hostname_generator.pattern must contain {counter} or {counter:0N} to keep generated hostnames unique.');
         }
 
         return ['pattern' => $pattern];

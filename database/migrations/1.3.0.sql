@@ -1,0 +1,13 @@
+ALTER TABLE vm_provisioning
+    MODIFY status ENUM(
+        'RESERVED','DNS_CONFIGURING','DNS_READY','PROVISIONING','BOOTING',
+        'BOOTSTRAPPING','PUPPET_ENROLLMENT','CONFIGURING','READY',
+        'FAILED','ROLLBACK','ROLLBACK_FAILED'
+    ) NOT NULL DEFAULT 'RESERVED';
+
+ALTER TABLE vm_provisioning_events
+    ADD COLUMN stage VARCHAR(64) NULL AFTER step_name,
+    ADD COLUMN request_json LONGTEXT NULL AFTER message,
+    ADD COLUMN response_json LONGTEXT NULL AFTER request_json,
+    ADD COLUMN error_text VARCHAR(2000) NULL AFTER response_json,
+    ADD COLUMN duration_ms BIGINT UNSIGNED NULL AFTER error_text;
