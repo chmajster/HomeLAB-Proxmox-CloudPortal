@@ -1,0 +1,5 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" role="img" aria-label="Algen Cloud Portal">
+  <rect width="64" height="64" rx="14" fill="#0b1220"/>
+  <path d="M16 42.5 29.5 15h5L48 42.5h-8.2l-2.7-6H26.9l-2.7 6H16Zm13.7-12.3h4.6L32 25l-2.3 5.2Z" fill="#67e8f9"/>
+  <path d="M42.5 20.5a8.5 8.5 0 0 1 7.9 5.3A7 7 0 0 1 50 39.7h-7.2l-3.4-7.4h11a2.8 2.8 0 0 0 .2-5.6h-3.3l-.7-2.1a4.4 4.4 0 0 0-4.1-3h-1.7l1.7-1.1Z" fill="#38bdf8"/>
+</svg>
