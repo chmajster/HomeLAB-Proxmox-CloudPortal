@@ -191,6 +191,27 @@ Na własnym serwerze można zamiast Crona użyć opcjonalnej usługi
 Worker nie jest potrzebny do samego instalatora, logowania ani konfiguracji
 panelu, ale jest potrzebny do wykonania kolejkowanych operacji Proxmox.
 
+## Aktualizacje
+
+Od wersji 1.4.0 instalacja ZIP/self-hosted ma transakcyjny aktualizator CLI.
+Przykład aktualizacji zweryfikowaną paczką:
+
+```bash
+bash update.sh --package /tmp/Algen-Proxmox-CloudPortal-1.4.0.zip --sha256 <SHA256>
+```
+
+Aktualizator nie rozpocznie pracy przy aktywnych jobach, włącza HTTP 503
+maintenance mode, tworzy kopię kodu i pełny dump bazy, wykonuje migracje i smoke
+test, a po błędzie automatycznie odtwarza poprzedni stan. Ręczny rollback
+najnowszej kopii:
+
+```bash
+bash update.sh --rollback latest
+```
+
+Pełna procedura, wymagania oraz scenariusze awaryjne są opisane w
+[`docs/UPDATES.md`](docs/UPDATES.md).
+
 ## Bezpieczeństwo i odzyskiwanie
 
 - wykonuj wspólny backup bazy, `config/runtime.php` i
@@ -199,8 +220,10 @@ panelu, ale jest potrzebny do wykonania kolejkowanych operacji Proxmox.
 - samo usunięcie locka nie usuwa ani nie nadpisuje danych,
 - ponowną instalację uruchamiaj dopiero po backupie i świadomym usunięciu
   runtime/locka,
-- portal nie uruchamia poleceń shell ani SSH; SQL wykonuje przez PDO, a Proxmox
-  obsługuje przez HTTPS REST API.
+- ścieżka HTTP portalu nie wykonuje dowolnych poleceń shell ani SSH; Proxmox jest
+  obsługiwany przez HTTPS REST API. Opcjonalny managed provisioning może wywołać
+  wyłącznie skonfigurowany, absolutny adapter Terraform jako tablicę argumentów
+  z pominięciem shella, a `update.sh` jest świadomie uruchamianym narzędziem CLI.
 
 Opis warstw, RBAC, quota, IPAM, kolejki i mechanizmów rollback znajduje się w
 [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md).
