@@ -15,19 +15,19 @@
 
   async function loadVms() {
     if (!summaryRequest) {
-      summaryRequest = fetch(appUrl(isAdmin ? '/api/v1/admin/vms/discovery' : '/api/v1/vms'), {headers:{Accept:'application/json'}})
+      summaryRequest = fetch(appUrl('/api/v1/vms'), {headers:{Accept:'application/json'}})
         .then(async response => {
           const payload = await response.json().catch(() => ({}));
           if (!response.ok) throw new Error(payload.error?.message || `HTTP ${response.status}`);
-          return isAdmin ? (payload.data?.vms || []) : (payload.data || []);
+          return payload.data || [];
         })
         .finally(() => window.setTimeout(() => { summaryRequest = null; }, 1500));
     }
     return summaryRequest;
   }
 
-  function card(label, value, note = '') {
-    return `<div class="vm-summary-card"><small>${h(label)}</small><strong>${h(value)}</strong>${note ? `<span class="resource-meta">${h(note)}</span>` : ''}</div>`;
+  function card(label, value) {
+    return `<div class="vm-summary-card"><small>${h(label)}</small><strong>${h(value)}</strong></div>`;
   }
 
   async function updateSummary(summary) {
@@ -35,12 +35,11 @@
       const vms = await loadVms();
       const running = vms.filter(vm => vm.status === 'running').length;
       const stopped = vms.filter(vm => ['stopped','paused'].includes(String(vm.status))).length;
-      const problems = vms.filter(vm => vm.live_missing || vm.status === 'error').length;
-      const managed = vms.filter(vm => vm.portal_managed !== false).length;
+      const problems = vms.filter(vm => vm.status === 'error').length;
       summary.innerHTML = card(locale === 'pl' ? 'Wszystkie VM' : 'All VMs', vms.length)
         + card(locale === 'pl' ? 'Uruchomione' : 'Running', running)
         + card(locale === 'pl' ? 'Zatrzymane' : 'Stopped', stopped)
-        + card(locale === 'pl' ? 'Wymagają uwagi' : 'Need attention', problems, isAdmin ? `${managed} ${locale === 'pl' ? 'zarządzanych przez portal' : 'portal-managed'}` : '');
+        + card(locale === 'pl' ? 'Wymagają uwagi' : 'Need attention', problems);
     } catch {
       summary.remove();
     }
@@ -71,7 +70,7 @@
     panel.querySelectorAll('.actions .btn').forEach(button => button.classList.add('btn-sm'));
     addSearch(panel);
 
-    if (!document.getElementById('vmFriendlySummary')) {
+    if (!isAdmin && !document.getElementById('vmFriendlySummary')) {
       const summary = document.createElement('div');
       summary.id = 'vmFriendlySummary';
       summary.className = 'vm-summary-grid';
