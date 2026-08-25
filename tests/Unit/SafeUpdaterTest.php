@@ -41,7 +41,7 @@ final class SafeUpdaterTest extends TestCase
     {
         $front = file_get_contents(dirname(__DIR__, 2) . '/public/index.php');
         self::assertIsString($front);
-        $maintenance = strpos($front, "storage/maintenance.json");
+        $maintenance = strpos($front, 'storage/maintenance.json');
         $autoload = strpos($front, '$autoload =');
         self::assertNotFalse($maintenance);
         self::assertNotFalse($autoload);
@@ -55,7 +55,7 @@ final class SafeUpdaterTest extends TestCase
     {
         $worker = file_get_contents(dirname(__DIR__, 2) . '/bin/worker.php');
         self::assertIsString($worker);
-        self::assertStringContainsString("$maintenancePath = $root . '/storage/maintenance.json'", $worker);
+        self::assertStringContainsString('$maintenancePath = $root . \'/storage/maintenance.json\'', $worker);
         self::assertGreaterThanOrEqual(2, substr_count($worker, 'is_file($maintenancePath)'));
         self::assertStringContainsString('worker will not claim another job', $worker);
     }
@@ -64,9 +64,9 @@ final class SafeUpdaterTest extends TestCase
     {
         $helper = file_get_contents(dirname(__DIR__, 2) . '/bin/update-helper.php');
         self::assertIsString($helper);
-        self::assertStringContainsString("fopen($target, 'x')", $helper);
+        self::assertStringContainsString('fopen($target, \'x\')', $helper);
         self::assertStringContainsString('chmod($target, 0600)', $helper);
-        self::assertStringContainsString("is_link($target)", $helper);
+        self::assertStringContainsString('is_link($target)', $helper);
         self::assertStringContainsString("'password=\"'", $helper);
         self::assertStringNotContainsString('fwrite(STDOUT, $password', $helper);
     }
