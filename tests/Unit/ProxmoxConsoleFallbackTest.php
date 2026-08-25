@@ -6,6 +6,7 @@ namespace CloudPortal\Tests\Unit;
 
 use CloudPortal\Services\Proxmox\ProxmoxClientInterface;
 use CloudPortal\Services\Proxmox\ProxmoxClientProviderInterface;
+use CloudPortal\Services\Proxmox\ProxmoxException;
 use CloudPortal\Services\Proxmox\ProxmoxVmManager;
 use PHPUnit\Framework\TestCase;
 
@@ -59,6 +60,40 @@ final class ProxmoxConsoleFallbackTest extends TestCase
         self::assertStringContainsString('delete-this-file=1', $result);
         self::assertCount(1, $client->posts);
         self::assertSame('/nodes/pve/qemu/130/spiceproxy', $client->posts[0][0]);
+    }
+
+    public function testNoSpicePortFallsBackToNoVncInsteadOfReturningHttp500(): void
+    {
+        $client = new class implements ProxmoxClientInterface {
+            /** @var list<string> */
+            public array $calls = [];
+
+            public function get(string $path, array $query = []): mixed
+            {
+                $this->calls[] = 'GET ' . $path;
+                return str_ends_with($path, '/config') ? ['name' => 'legacy-vm'] : [];
+            }
+
+            public function post(string $path, array $data = []): mixed
+            {
+                $this->calls[] = 'POST ' . $path;
+                if (str_ends_with($path, '/spiceproxy')) {
+                    throw new ProxmoxException('no spice port', 500);
+                }
+                return null;
+            }
+
+            public function put(string $path, array $data = []): mixed { return null; }
+            public function delete(string $path, array $data = []): mixed { return null; }
+            public function waitForTask(string $node, string $upid, int $timeoutSeconds = 900): array { return []; }
+        };
+        $manager = new ProxmoxVmManager($this->provider($client));
+
+        $result = $manager->console(1, 'pve', 140, '10.0.0.10', 8006);
+
+        self::assertStringContainsString('CLOUDPORTAL_CONSOLE_MODE=novnc', $result);
+        self::assertStringContainsString('novnc=1', $result);
+        self::assertContains('POST /nodes/pve/qemu/140/spiceproxy', $client->calls);
     }
 
     private function client(array $config, ?array $spice = null): ProxmoxClientInterface
