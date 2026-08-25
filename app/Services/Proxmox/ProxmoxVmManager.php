@@ -114,7 +114,8 @@ final class ProxmoxVmManager
         }
 
         $display = strtolower(trim((string) ($vmConfig['vga'] ?? 'std')));
-        if (preg_match('/^qxl(?:\d+)?(?:,|$)/', $display) === 1) {
+        $trySpice = !array_key_exists('vga', $vmConfig) || preg_match('/^qxl(?:\d+)?(?:,|$)/', $display) === 1;
+        if ($trySpice) {
             try {
                 $config = $client->post($path . '/spiceproxy', ['proxy' => $proxyHost]);
                 if (is_array($config)) return $this->spiceConfig($config);
