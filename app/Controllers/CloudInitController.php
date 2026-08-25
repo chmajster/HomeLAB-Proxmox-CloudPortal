@@ -26,11 +26,7 @@ final class CloudInitController
     {
         $this->app->csrf->verify($request);
         $user = $this->app->auth()->requireUser();
-        $id = (new SshKeyService($this->app->pdo()))->create(
-            (int) $user['id'],
-            (string) $request->input('name', ''),
-            (string) $request->input('public_key', ''),
-        );
+        $id = (new SshKeyService($this->app->pdo()))->create((int) $user['id'], (string) $request->input('name', ''), (string) $request->input('public_key', ''));
         $this->app->audit()->log((int) $user['id'], $request->ip(), 'ssh_key.create', 'success', 'ssh_key', $id);
         return Response::json(['data' => ['id' => $id]], 201);
     }
@@ -48,21 +44,14 @@ final class CloudInitController
     public function profiles(Request $request): Response
     {
         $user = $this->app->auth()->requireUser();
-        return Response::json(['data' => (new CloudInitProfileService($this->app->pdo()))->listForUser(
-            (int) $user['id'],
-            $this->app->auth()->isAdmin(),
-        )]);
+        return Response::json(['data' => (new CloudInitProfileService($this->app->pdo()))->listForUser((int) $user['id'], $this->app->auth()->isAdmin())]);
     }
 
     public function createProfile(Request $request): Response
     {
         $this->app->csrf->verify($request);
         $user = $this->app->auth()->requireUser();
-        $id = (new CloudInitProfileService($this->app->pdo()))->create(
-            (int) $user['id'],
-            $this->app->auth()->isAdmin(),
-            $request->all(),
-        );
+        $id = (new CloudInitProfileService($this->app->pdo()))->create((int) $user['id'], $this->app->auth()->isAdmin(), $request->all());
         $this->app->audit()->log((int) $user['id'], $request->ip(), 'cloud_init_profile.create', 'success', 'cloud_init_profile', $id);
         return Response::json(['data' => ['id' => $id]], 201);
     }
@@ -72,12 +61,7 @@ final class CloudInitController
         $this->app->csrf->verify($request);
         $user = $this->app->auth()->requireUser();
         $id = (int) $request->param('id');
-        (new CloudInitProfileService($this->app->pdo()))->update(
-            (int) $user['id'],
-            $this->app->auth()->isAdmin(),
-            $id,
-            $request->all(),
-        );
+        (new CloudInitProfileService($this->app->pdo()))->update((int) $user['id'], $this->app->auth()->isAdmin(), $id, $request->all());
         $this->app->audit()->log((int) $user['id'], $request->ip(), 'cloud_init_profile.update', 'success', 'cloud_init_profile', $id);
         return Response::json(['data' => ['id' => $id, 'updated' => true]]);
     }
@@ -87,11 +71,7 @@ final class CloudInitController
         $this->app->csrf->verify($request);
         $user = $this->app->auth()->requireUser();
         $id = (int) $request->param('id');
-        (new CloudInitProfileService($this->app->pdo()))->delete(
-            (int) $user['id'],
-            $this->app->auth()->isAdmin(),
-            $id,
-        );
+        (new CloudInitProfileService($this->app->pdo()))->delete((int) $user['id'], $this->app->auth()->isAdmin(), $id);
         $this->app->audit()->log((int) $user['id'], $request->ip(), 'cloud_init_profile.delete', 'success', 'cloud_init_profile', $id);
         return Response::json(['data' => ['deleted' => true]]);
     }
@@ -100,7 +80,10 @@ final class CloudInitController
     {
         $user = $this->app->auth()->requireUser();
         $service = new CloudInitProfileService($this->app->pdo());
-        $profile = $service->owned((int) $user['id'], $this->app->auth()->isAdmin(), (int) $request->param('id'));
+        $profileId = (int) $request->param('id');
+        $profile = $this->app->auth()->isAdmin()
+            ? $service->owned((int) $user['id'], true, $profileId)
+            : $service->resolveForOwner($profileId, (int) $user['id']);
         $yaml = $service->vendorData($profile);
         $filename = preg_replace('/[^A-Za-z0-9._-]+/', '-', (string) $profile['name']) ?: 'cloud-init-profile';
         return new Response($yaml, 200, [
