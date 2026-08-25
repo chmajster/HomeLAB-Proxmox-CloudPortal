@@ -11,6 +11,7 @@ use CloudPortal\Controllers\DashboardController;
 use CloudPortal\Controllers\JobController;
 use CloudPortal\Controllers\PlacementAdminController;
 use CloudPortal\Controllers\ProjectAdminController;
+use CloudPortal\Controllers\ProjectCreateController;
 use CloudPortal\Controllers\ProxmoxAdminController;
 use CloudPortal\Controllers\QuotaAdminController;
 use CloudPortal\Controllers\ResourceController;
@@ -32,6 +33,7 @@ return static function (Router $router, Application $app): void {
     $resources = new ResourceController($app);
     $admin = new AdminController($app);
     $projectAdmin = new ProjectAdminController($app);
+    $projectCreate = new ProjectCreateController($app);
     $proxmoxAdmin = new ProxmoxAdminController($app);
     $quotaAdmin = new QuotaAdminController($app);
     $templateAdmin = new TemplateAdminController($app);
@@ -105,6 +107,7 @@ return static function (Router $router, Application $app): void {
     $router->add('DELETE', '/api/v1/admin/proxmox-vms/{connectionId}/{node}/{vmid}/snapshots/{snapshotName}', [$proxmoxAdmin, 'deleteLiveVmSnapshot']);
     $router->add('POST', '/api/v1/admin/proxmox-vms/{connectionId}/{node}/{vmid}/console', [$proxmoxAdmin, 'liveVmConsole']);
     $router->add('GET', '/api/v1/admin/projects/{id}', [$projectAdmin, 'show']);
+    $router->add('POST', '/api/v1/admin/projects', [$projectCreate, 'create']);
     $router->add('POST', '/api/v1/admin/{resource}', [$admin, 'create']);
     $router->add('PATCH', '/api/v1/admin/{resource}/{id}', [$admin, 'update']);
     $router->add('POST', '/api/v1/admin/proxmox/{id}/sync', [$proxmoxAdmin, 'sync']);
