@@ -20,13 +20,15 @@ $assetVersion = static function (string $path) use ($assetRoot): string {
   <script src="<?= htmlspecialchars((string) $basePath, ENT_QUOTES, 'UTF-8') ?>/assets/js/modules/api.js?v=<?= $assetVersion('js/modules/api.js') ?>" defer></script>
   <script src="<?= htmlspecialchars((string) $basePath, ENT_QUOTES, 'UTF-8') ?>/assets/js/modules/jobs.js?v=<?= $assetVersion('js/modules/jobs.js') ?>" defer></script>
   <script src="<?= htmlspecialchars((string) $basePath, ENT_QUOTES, 'UTF-8') ?>/assets/js/modules/system.js?v=<?= $assetVersion('js/modules/system.js') ?>" defer></script>
-  <?php if ($page !== 'vm-details'): ?>
+  <?php if (!in_array($page, ['vm-details', 'project-details'], true)): ?>
     <script src="<?= htmlspecialchars((string) $basePath, ENT_QUOTES, 'UTF-8') ?>/assets/js/app.js?v=<?= $assetVersion('js/app.js') ?>" defer></script>
     <script src="<?= htmlspecialchars((string) $basePath, ENT_QUOTES, 'UTF-8') ?>/assets/js/managed-provisioning.js?v=<?= $assetVersion('js/managed-provisioning.js') ?>" defer></script>
   <?php endif; ?>
   <script src="<?= htmlspecialchars((string) $basePath, ENT_QUOTES, 'UTF-8') ?>/assets/js/portal-enhancements.js?v=<?= $assetVersion('js/portal-enhancements.js') ?>" defer></script>
   <?php if ($page === 'vm-details'): ?>
     <script src="<?= htmlspecialchars((string) $basePath, ENT_QUOTES, 'UTF-8') ?>/assets/js/vm-details.js?v=<?= $assetVersion('js/vm-details.js') ?>" defer></script>
+  <?php elseif ($page === 'project-details'): ?>
+    <script src="<?= htmlspecialchars((string) $basePath, ENT_QUOTES, 'UTF-8') ?>/assets/js/project-details.js?v=<?= $assetVersion('js/project-details.js') ?>" defer></script>
   <?php endif; ?>
 </body>
 </html>
