@@ -44,6 +44,7 @@ final class DatabaseInstaller
                 'portal_table_count' => 0,
                 'existing_tables' => false,
                 'compatible_portal_schema' => false,
+                'partial_portal_schema' => false,
                 'warning' => null,
                 'message' => 'Połączenie z serwerem MariaDB/MySQL działa. Dane logowania zostały zaakceptowane. Istnienie wskazanej bazy nie było sprawdzane.',
             ];
@@ -60,6 +61,7 @@ final class DatabaseInstaller
             $result['existing_tables'] = false;
             $result['portal_table_count'] = 0;
             $result['compatible_portal_schema'] = true;
+            $result['partial_portal_schema'] = false;
             $result['warning'] = 'Wybrano wyczyszczenie bazy. Po kliknięciu „Kontynuuj” wszystkie istniejące tabele i widoki zostaną usunięte, a schemat zostanie utworzony od nowa.';
         }
 
@@ -76,9 +78,22 @@ final class DatabaseInstaller
         $lock = $pdo->prepare('SELECT GET_LOCK(:name, 10)');
         $lock->execute(['name' => $lockName]);
         if ((int) $lock->fetchColumn() !== 1) throw new \RuntimeException('Inna sesja instalatora inicjalizuje obecnie tę bazę danych.');
+
+        $cleanupOnFailure = false;
         try {
             if ((bool) ($config['reset_database'] ?? false)) {
                 $this->resetDatabase($pdo);
+                $cleanupOnFailure = true;
+            } else {
+                $existingTables = $this->tables($pdo);
+                $cleanupOnFailure = $existingTables === [];
+                $portalTables = array_values(array_intersect(self::REQUIRED_TABLES, $existingTables));
+                if ($portalTables !== [] && !$this->hasSchemaMarker($pdo)) {
+                    throw new \RuntimeException(
+                        'Wykryto częściowo utworzony schemat Cloud Portal po wcześniejszej nieudanej instalacji. '
+                        . 'Zaznacz „Wyczyść bazę danych i utwórz schemat od nowa”, aby bezpiecznie rozpocząć instalację od początku.'
+                    );
+                }
             }
 
             $schema = file_get_contents($this->schemaPath);
@@ -88,7 +103,24 @@ final class DatabaseInstaller
             $this->verify($pdo);
             return ['version' => self::SCHEMA_VERSION, 'tables' => count($this->tables($pdo))];
         } catch (\Throwable $exception) {
-            throw new \RuntimeException('Inicjalizacja schematu bazy danych nie powiodła się: ' . $this->safeDatabaseMessage($exception), 0, $exception);
+            $cleanupMessage = '';
+            if ($cleanupOnFailure) {
+                try {
+                    $this->resetDatabase($pdo);
+                    $cleanupMessage = ' Częściowo utworzony schemat został automatycznie usunięty; ponowienie instalacji rozpocznie się od pustej bazy.';
+                } catch (\Throwable $cleanupException) {
+                    $cleanupMessage = ' Nie udało się automatycznie usunąć częściowo utworzonego schematu: '
+                        . $this->safeDatabaseMessage($cleanupException) . ' Zaznacz opcję wyczyszczenia bazy lub usuń pozostałe tabele ręcznie.';
+                }
+            }
+
+            throw new \RuntimeException(
+                'Inicjalizacja schematu bazy danych nie powiodła się: '
+                . $this->safeDatabaseMessage($exception, $pdo)
+                . $cleanupMessage,
+                0,
+                $exception,
+            );
         } finally {
             $release = $pdo->prepare('SELECT RELEASE_LOCK(:name)');
             $release->execute(['name' => $lockName]);
@@ -203,8 +235,17 @@ final class DatabaseInstaller
 
         $tables = $this->tables($pdo);
         $portalTables = array_values(array_intersect(self::REQUIRED_TABLES, $tables));
+        $compatiblePortalSchema = $this->hasSchemaMarker($pdo);
+        $partialPortalSchema = $portalTables !== [] && !$compatiblePortalSchema;
         $charset = $pdo->query('SELECT @@character_set_database')->fetchColumn();
         $collation = $pdo->query('SELECT @@collation_database')->fetchColumn();
+
+        $warning = null;
+        if ($partialPortalSchema) {
+            $warning = 'Wykryto częściowo utworzony schemat Cloud Portal po wcześniejszej nieudanej instalacji. Zaznacz „Wyczyść bazę danych i utwórz schemat od nowa”.';
+        } elseif ($tables !== []) {
+            $warning = 'Baza nie jest pusta. Instalator nie usunie ani nie nadpisze istniejących tabel.';
+        }
 
         return [
             'server_version' => $pdo->getAttribute(PDO::ATTR_SERVER_VERSION),
@@ -215,9 +256,10 @@ final class DatabaseInstaller
             'table_count' => count($tables),
             'portal_table_count' => count($portalTables),
             'existing_tables' => $tables !== [],
-            'compatible_portal_schema' => $this->hasSchemaMarker($pdo),
+            'compatible_portal_schema' => $compatiblePortalSchema,
+            'partial_portal_schema' => $partialPortalSchema,
             'database_created' => $databaseCreated,
-            'warning' => $tables === [] ? null : 'Baza nie jest pusta. Instalator nie usunie ani nie nadpisze istniejących tabel.',
+            'warning' => $warning,
         ];
     }
 
@@ -317,9 +359,48 @@ final class DatabaseInstaller
         }
     }
 
-    private function safeDatabaseMessage(\Throwable $exception): string
+    private function safeDatabaseMessage(\Throwable $exception, ?PDO $pdo = null): string
     {
         $message = preg_replace('/SQLSTATE\[[^]]+\](?:\[[^]]+\])?:?\s*/', '', $exception->getMessage()) ?? '';
-        return mb_substr(str_replace(["\r", "\n"], ' ', $message), 0, 500);
+
+        if ($pdo !== null && $this->isForeignKeyError($exception)) {
+            $foreignKeyError = $this->latestForeignKeyError($pdo);
+            if ($foreignKeyError !== null) {
+                $message .= ' Szczegóły InnoDB: ' . $foreignKeyError;
+            }
+        }
+
+        return mb_substr(str_replace(["\r", "\n"], ' ', $message), 0, 900);
+    }
+
+    private function isForeignKeyError(\Throwable $exception): bool
+    {
+        $nativeCode = 0;
+        if ($exception instanceof \PDOException && is_array($exception->errorInfo) && isset($exception->errorInfo[1])) {
+            $nativeCode = (int) $exception->errorInfo[1];
+        }
+
+        $message = strtolower($exception->getMessage());
+        return in_array($nativeCode, [1005, 1215, 1451, 1452], true)
+            || str_contains($message, 'foreign key constraint');
+    }
+
+    private function latestForeignKeyError(PDO $pdo): ?string
+    {
+        try {
+            $row = $pdo->query('SHOW ENGINE INNODB STATUS')->fetch(PDO::FETCH_ASSOC);
+            if (!is_array($row)) return null;
+            $status = (string) ($row['Status'] ?? $row['status'] ?? '');
+            if ($status === '') return null;
+
+            if (preg_match('/LATEST FOREIGN KEY ERROR\s*-+\s*(.+?)(?:\n-+\n|\z)/is', $status, $matches) !== 1) {
+                return null;
+            }
+
+            $detail = preg_replace('/\s+/', ' ', trim($matches[1])) ?? '';
+            return $detail === '' ? null : mb_substr($detail, 0, 450);
+        } catch (\Throwable) {
+            return null;
+        }
     }
 }
