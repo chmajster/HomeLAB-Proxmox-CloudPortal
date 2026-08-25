@@ -152,7 +152,7 @@ final class DatabaseInstaller
             $pdo->exec("SET SESSION time_zone = '+00:00'");
             return $pdo;
         } catch (\Throwable $exception) {
-            throw new \RuntimeException('Nie udało się połączyć z serwerem bazy danych. Sprawdź host, port, użytkownika i hasło.', 0, $exception);
+            throw new \RuntimeException('Database connection failed. Verify the host, database name, user and password.', 0, $exception);
         }
     }
 
@@ -169,7 +169,7 @@ final class DatabaseInstaller
             $pdo->exec("SET SESSION time_zone = '+00:00'");
             return $pdo;
         } catch (\Throwable $exception) {
-            throw new \RuntimeException('Nie udało się połączyć z bazą danych. Sprawdź nazwę bazy, użytkownika i hasło.', 0, $exception);
+            throw new \RuntimeException('Database connection failed. Verify the host, database name, user and password.', 0, $exception);
         }
     }
 
