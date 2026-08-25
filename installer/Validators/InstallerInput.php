@@ -6,7 +6,7 @@ namespace CloudPortal\Installer\Validators;
 
 final class InstallerInput
 {
-    /** @param array<string,mixed> $input @return array{driver:string,host:string,port:int,name:string,user:string,password:string,create_if_missing:bool,confirm_existing:bool} */
+    /** @param array<string,mixed> $input @return array{driver:string,host:string,port:int,name:string,user:string,password:string,create_if_missing:bool,connection_test_only:bool,confirm_existing:bool} */
     public static function database(array $input): array
     {
         $driver = (string) ($input['db_driver'] ?? 'mysql');
@@ -20,12 +20,18 @@ final class InstallerInput
         if ($port === false) $fields['db_port'] = 'Port musi być liczbą od 1 do 65535.';
         if (preg_match('/^[A-Za-z0-9_$-]{1,64}$/', $name) !== 1) $fields['db_name'] = 'Podaj prawidłową nazwę bazy danych (1-64 znaki: litery, cyfry, _, $, -).';
         if ($user === '' || strlen($user) > 128) $fields['db_user'] = 'Użytkownik bazy danych jest wymagany.';
-        self::fail($fields, 'Popraw dane połączenia z bazą danych.');
+        if ($fields !== []) {
+            throw new InstallerValidationException(
+                'Popraw dane połączenia z bazą danych: ' . implode(' ', array_values($fields)),
+                $fields,
+            );
+        }
         return [
             'driver' => $driver, 'host' => $host, 'port' => (int) $port, 'name' => $name,
             'user' => $user, 'password' => (string) ($input['db_password'] ?? ''),
             'create_if_missing' => !array_key_exists('create_database_if_missing', $input)
                 || filter_var($input['create_database_if_missing'], FILTER_VALIDATE_BOOL),
+            'connection_test_only' => filter_var($input['connection_test_only'] ?? false, FILTER_VALIDATE_BOOL),
             'confirm_existing' => filter_var($input['confirm_existing_database'] ?? false, FILTER_VALIDATE_BOOL),
         ];
     }
