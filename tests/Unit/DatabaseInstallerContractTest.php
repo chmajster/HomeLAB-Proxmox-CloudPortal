@@ -73,6 +73,30 @@ final class DatabaseInstallerContractTest extends TestCase
         self::assertStringContainsString('uprawnienia DROP', $source);
     }
 
+    public function testFailedFreshInitializationIsCleanedAndPartialSchemaIsDetected(): void
+    {
+        $source = (string) file_get_contents(dirname(__DIR__, 2) . '/installer/Services/DatabaseInstaller.php');
+
+        self::assertStringContainsString("\$cleanupOnFailure = \$existingTables === []", $source);
+        self::assertStringContainsString('Częściowo utworzony schemat został automatycznie usunięty', $source);
+        self::assertStringContainsString("'partial_portal_schema' => \$partialPortalSchema", $source);
+        self::assertStringContainsString('Wykryto częściowo utworzony schemat Cloud Portal', $source);
+        self::assertStringContainsString('Wyczyść bazę danych i utwórz schemat od nowa', $source);
+    }
+
+    public function testForeignKeyFailuresExposeInnoDbDiagnosticContext(): void
+    {
+        $root = dirname(__DIR__, 2);
+        $installer = (string) file_get_contents($root . '/installer/Services/DatabaseInstaller.php');
+        $migrations = (string) file_get_contents($root . '/app/Database/MigrationService.php');
+
+        self::assertStringContainsString('SHOW ENGINE INNODB STATUS', $installer);
+        self::assertStringContainsString('LATEST FOREIGN KEY ERROR', $installer);
+        self::assertStringContainsString('Szczegóły InnoDB:', $installer);
+        self::assertStringContainsString('Migracja %s nie powiodła się podczas wykonywania:', $migrations);
+        self::assertStringContainsString('statementSummary', $migrations);
+    }
+
     public function testMysqlReservedLastValueIdentifierIsQuotedEverywhere(): void
     {
         $root = dirname(__DIR__, 2);
