@@ -98,6 +98,7 @@
   }
 
   function replaceButtonText(button, text) {
+    if (button.textContent.trim() === text) return;
     const svg = button.querySelector('svg');
     button.textContent = '';
     if (svg) button.append(svg);
