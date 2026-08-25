@@ -37,7 +37,7 @@ final class MigrationService
             }
             try {
                 if (!$this->isApplied($version)) {
-                    $this->executeStatements($sql);
+                    $this->executeStatements($sql, $version);
                     if (!$this->isApplied($version)) {
                         $statement = $this->pdo->prepare('INSERT INTO schema_migrations (version) VALUES (:version)');
                         $statement->execute(['version' => $version]);
@@ -63,7 +63,7 @@ final class MigrationService
         return $this->isApplied(self::CURRENT_VERSION);
     }
 
-    private function executeStatements(string $sql): void
+    private function executeStatements(string $sql, string $version): void
     {
         $statements = preg_split('/;\s*(?:\r?\n|$)/', trim($sql)) ?: [];
         foreach ($statements as $statement) {
@@ -76,9 +76,25 @@ final class MigrationService
                 if ($driverCode === 1060) {
                     continue;
                 }
-                throw $exception;
+
+                throw new \RuntimeException(
+                    sprintf(
+                        'Migracja %s nie powiodła się podczas wykonywania: %s. %s',
+                        $version,
+                        $this->statementSummary($statement),
+                        $exception->getMessage(),
+                    ),
+                    0,
+                    $exception,
+                );
             }
         }
+    }
+
+    private function statementSummary(string $statement): string
+    {
+        $summary = preg_replace('/\s+/', ' ', trim($statement)) ?? '';
+        return mb_substr($summary, 0, 220);
     }
 
     private function isApplied(string $version): bool
