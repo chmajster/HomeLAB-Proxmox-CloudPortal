@@ -29,7 +29,7 @@ final class ProxmoxPasswordBootstrapContractTest extends TestCase
         self::assertStringContainsString('bool $replaceExisting = false', $bootstrap);
         self::assertStringContainsString('tokenExists(', $bootstrap);
         self::assertStringContainsString('if (!$replaceExisting)', $bootstrap);
-        self::assertStringContainsString("$this->request($config, 'DELETE', $path, [], $session)", $bootstrap);
+        self::assertStringContainsString("\$this->request(\$config, 'DELETE', \$path, [], \$session)", $bootstrap);
         self::assertStringContainsString("'errors'", $bootstrap);
         self::assertStringContainsString("'installer_proxmox_replace_token'", $controller);
         self::assertStringContainsString('hash_equals($pendingReplacement, $replacementKey)', $controller);
