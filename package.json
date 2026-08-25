@@ -3,6 +3,7 @@
   "private": true,
   "scripts": {
     "test:e2e": "playwright test",
+    "test:proxmox-e2e": "playwright test --config=playwright.proxmox.config.js",
     "test:visual": "node tests/visual-check.js"
   },
   "devDependencies": {

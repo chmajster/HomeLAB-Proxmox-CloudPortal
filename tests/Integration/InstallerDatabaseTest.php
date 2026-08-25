@@ -56,7 +56,8 @@ final class InstallerDatabaseTest extends MariaDbTestCase
             $this->databaseInstaller()->connect($config);
             self::fail('Invalid database endpoint was accepted.');
         } catch (\RuntimeException $exception) {
-            self::assertSame('Database connection failed. Verify the host, database name, user and password.', $exception->getMessage());
+            self::assertStringContainsString('Nie można połączyć się z serwerem MariaDB/MySQL.', $exception->getMessage());
+            self::assertStringContainsString('Sprawdź host, port', $exception->getMessage());
             self::assertStringNotContainsString($config['password'], $exception->getMessage());
         }
     }

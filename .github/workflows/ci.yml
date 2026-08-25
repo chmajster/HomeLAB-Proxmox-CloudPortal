@@ -5,12 +5,12 @@ on:
   push:
     branches: [main]
 
+permissions:
+  contents: read
+
 jobs:
   php:
-    runs-on:
-      - self-hosted
-      - linux
-      - x64
+    runs-on: ubuntu-latest
     services:
       mariadb:
         image: mariadb:11.4
@@ -45,10 +45,7 @@ jobs:
       - run: composer test:smoke
 
   e2e:
-    runs-on:
-      - self-hosted
-      - linux
-      - x64
+    runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
       - uses: shivammathur/setup-php@v2
