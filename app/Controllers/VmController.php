@@ -13,6 +13,7 @@ use CloudPortal\Services\Provisioning\ProvisioningRequestService;
 use CloudPortal\Services\Provisioning\VmOperationService;
 use CloudPortal\Services\Proxmox\InfrastructureService;
 use CloudPortal\Services\Proxmox\ProxmoxClientFactory;
+use CloudPortal\Services\Proxmox\ProxmoxVmManager;
 
 final class VmController
 {
@@ -153,16 +154,23 @@ final class VmController
         $user = $this->app->auth()->requireUser();
         $this->app->auth()->requirePermission('vm.operate');
         $vm = $this->operations()->accessibleVm((int) $request->param('id'), (int) $user['id'], $this->app->auth()->isAdmin());
-        $client = (new ProxmoxClientFactory($this->app->pdo(), $this->app->crypto()))->forConnection((int) $vm['connection_id']);
-        $connection = $this->app->pdo()->prepare('SELECT hostname FROM proxmox_connections WHERE id = :id');
+        $connection = $this->app->pdo()->prepare('SELECT hostname, port FROM proxmox_connections WHERE id = :id');
         $connection->execute(['id' => $vm['connection_id']]);
-        $proxyHost = $connection->fetchColumn();
-        $config = $client->post('/nodes/' . rawurlencode((string) $vm['node_name']) . '/qemu/' . (int) $vm['vmid'] . '/spiceproxy', ['proxy' => $proxyHost]);
-        if (!is_array($config)) {
-            throw new \RuntimeException('Proxmox did not return a SPICE console configuration.');
+        $connectionData = $connection->fetch();
+        if (!is_array($connectionData)) {
+            throw new \RuntimeException('Nie znaleziono połączenia Proxmox dla tej VM.');
         }
+
+        $content = (new ProxmoxVmManager(new ProxmoxClientFactory($this->app->pdo(), $this->app->crypto())))->console(
+            (int) $vm['connection_id'],
+            (string) $vm['node_name'],
+            (int) $vm['vmid'],
+            (string) $connectionData['hostname'],
+            (int) $connectionData['port'],
+        );
+
         $this->app->audit()->log((int) $user['id'], $request->ip(), 'vm.console', 'success', 'virtual_machine', $vm['id']);
-        return new Response($this->spiceConfig($config), 200, [
+        return new Response($content, 200, [
             'Content-Type' => 'application/x-virt-viewer',
             'Content-Disposition' => 'attachment; filename="' . preg_replace('/[^A-Za-z0-9_-]/', '-', (string) $vm['name']) . '.vv"',
             'Cache-Control' => 'no-store',
@@ -172,23 +180,5 @@ final class VmController
     private function operations(): VmOperationService
     {
         return new VmOperationService(new Database($this->app->config));
-    }
-
-    /** @param array<string,mixed> $data */
-    private function spiceConfig(array $data): string
-    {
-        $allowed = ['type', 'host', 'proxy', 'password', 'tls-port', 'ca', 'host-subject', 'title', 'release-cursor', 'toggle-fullscreen', 'secure-attention', 'delete-this-file'];
-        $lines = ['[virt-viewer]'];
-        foreach ($allowed as $key) {
-            if (!array_key_exists($key, $data) || (!is_scalar($data[$key]) && $data[$key] !== null)) {
-                continue;
-            }
-            $value = str_replace(["\r", "\n"], ['', '\\n'], (string) $data[$key]);
-            $lines[] = $key . '=' . $value;
-        }
-        if (!isset($data['delete-this-file'])) {
-            $lines[] = 'delete-this-file=1';
-        }
-        return implode("\n", $lines) . "\n";
     }
 }

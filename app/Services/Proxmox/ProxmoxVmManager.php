@@ -105,11 +105,39 @@ final class ProxmoxVmManager
         return $this->requireUpid($client->delete($path . '/snapshot/' . rawurlencode($name)));
     }
 
-    public function console(int $connectionId, string $node, int $vmid, string $proxyHost): string
+    public function console(int $connectionId, string $node, int $vmid, string $proxyHost, int $proxyPort = 8006): string
     {
         [$client, $path] = $this->target($connectionId, $node, $vmid);
-        $config = $client->post($path . '/spiceproxy', ['proxy' => $proxyHost]);
-        if (!is_array($config)) throw new \RuntimeException('Proxmox did not return a SPICE console configuration.');
+        $vmConfig = $client->get($path . '/config');
+        if (!is_array($vmConfig)) {
+            throw new \RuntimeException('Proxmox did not return the VM display configuration.');
+        }
+
+        $display = strtolower(trim((string) ($vmConfig['vga'] ?? 'std')));
+        $trySpice = !array_key_exists('vga', $vmConfig) || preg_match('/^qxl(?:\d+)?(?:,|$)/', $display) === 1;
+        if ($trySpice) {
+            try {
+                $config = $client->post($path . '/spiceproxy', ['proxy' => $proxyHost]);
+                if (is_array($config)) return $this->spiceConfig($config);
+            } catch (ProxmoxException $exception) {
+                if (!$this->isMissingSpicePort($exception)) throw $exception;
+            }
+        }
+
+        $mode = preg_match('/^serial\d+(?:,|$)/', $display) === 1 ? 'xtermjs' : 'novnc';
+        return $this->webConsoleHandoff(
+            $proxyHost,
+            $proxyPort,
+            $node,
+            $vmid,
+            (string) ($vmConfig['name'] ?? ('VM ' . $vmid)),
+            $mode,
+        );
+    }
+
+    /** @param array<string,mixed> $config */
+    private function spiceConfig(array $config): string
+    {
         $allowed = ['type', 'host', 'proxy', 'password', 'tls-port', 'ca', 'host-subject', 'title', 'release-cursor', 'toggle-fullscreen', 'secure-attention', 'delete-this-file'];
         $lines = ['[virt-viewer]'];
         foreach ($allowed as $key) {
@@ -118,6 +146,28 @@ final class ProxmoxVmManager
         }
         if (!isset($config['delete-this-file'])) $lines[] = 'delete-this-file=1';
         return implode("\n", $lines) . "\n";
+    }
+
+    private function webConsoleHandoff(string $host, int $port, string $node, int $vmid, string $name, string $mode): string
+    {
+        $host = trim($host);
+        if (filter_var($host, FILTER_VALIDATE_IP, FILTER_FLAG_IPV6) !== false && !str_starts_with($host, '[')) {
+            $host = '[' . $host . ']';
+        }
+
+        $query = [
+            'console' => 'kvm',
+            $mode => 1,
+            'vmid' => $vmid,
+            'vmname' => $name,
+            'node' => $node,
+            'cmd' => '',
+        ];
+        if ($mode === 'novnc') $query['resize'] = 'off';
+
+        $url = 'https://' . $host . ':' . max(1, min(65535, $port)) . '/?' . http_build_query($query, '', '&', PHP_QUERY_RFC3986);
+        return 'CLOUDPORTAL_CONSOLE_URL=' . $url . "\n"
+            . 'CLOUDPORTAL_CONSOLE_MODE=' . $mode . "\n";
     }
 
     /** @return array{ProxmoxClientInterface,string} */
@@ -148,6 +198,12 @@ final class ProxmoxVmManager
     {
         return $exception->httpStatus >= 400
             && preg_match('/\bVM\s+\d+\s+not\s+running\b/i', $exception->getMessage()) === 1;
+    }
+
+    private function isMissingSpicePort(ProxmoxException $exception): bool
+    {
+        return $exception->httpStatus >= 400
+            && str_contains(mb_strtolower($exception->getMessage()), 'no spice port');
     }
 
     private function requireUpid(mixed $value): string
