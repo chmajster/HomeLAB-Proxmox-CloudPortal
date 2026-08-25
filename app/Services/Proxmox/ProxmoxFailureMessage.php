@@ -27,8 +27,17 @@ final class ProxmoxFailureMessage
         }
 
         if ($exception->httpStatus > 0) {
-            $label = self::httpLabel($exception->httpStatus);
             $detail = self::safeDetail($exception->getMessage(), $secrets);
+            $stoppedVm = self::notRunningVmId($detail);
+            if ($stoppedVm !== null) {
+                return sprintf(
+                    'Maszyna VM %d jest zatrzymana. Proxmox zwrócił ten stan jako HTTP %d, ale nie oznacza to awarii serwera. Uruchom VM, jeśli wykonywana operacja wymaga działającej maszyny.',
+                    $stoppedVm,
+                    $exception->httpStatus,
+                );
+            }
+
+            $label = self::httpLabel($exception->httpStatus);
             $apiErrors = $exception->response['errors'] ?? null;
             if ($apiErrors !== null) {
                 $encoded = json_encode($apiErrors, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
@@ -51,6 +60,15 @@ final class ProxmoxFailureMessage
     {
         if ($exception instanceof HttpException) return $exception;
         if ($exception instanceof ProxmoxException) {
+            $stoppedVm = self::notRunningVmId($exception->getMessage());
+            if ($stoppedVm !== null) {
+                return new HttpException(409, sprintf(
+                    '%s nie może zostać wykonana w obecnym stanie: VM %d jest zatrzymana. To nie jest awaria API Proxmox. Uruchom maszynę i ponów operację, jeśli wymaga ona działającej VM.',
+                    $operation,
+                    $stoppedVm,
+                ), ['proxmox_status' => $exception->httpStatus, 'vmid' => $stoppedVm, 'vm_state' => 'stopped']);
+            }
+
             $details = [];
             if ($exception->httpStatus > 0) $details['proxmox_status'] = $exception->httpStatus;
             if ($exception->curlCode > 0) $details['curl_code'] = $exception->curlCode;
@@ -82,6 +100,14 @@ final class ProxmoxFailureMessage
         $message = preg_replace('/[\x00-\x1F\x7F]+/u', ' ', $message) ?? '';
         $message = preg_replace('/\s+/u', ' ', trim($message)) ?? '';
         return mb_substr($message !== '' ? $message : 'brak dodatkowego opisu', 0, 500);
+    }
+
+    private static function notRunningVmId(string $message): ?int
+    {
+        $matches = [];
+        if (preg_match('/\bVM\s+(\d+)\s+(?:is\s+)?not\s+running\b/i', $message, $matches) !== 1) return null;
+        $vmid = (int) ($matches[1] ?? 0);
+        return $vmid > 0 ? $vmid : null;
     }
 
     private static function curlHint(int $code): string
