@@ -48,7 +48,7 @@
 
     const intro = form.querySelector('.section-intro');
     if (intro) {
-      intro.textContent = 'Podaj dane serwera MariaDB/MySQL i nazwę bazy. Domyślnie instalator utworzy wskazaną bazę, jeśli jeszcze nie istnieje, a następnie utworzy wymagane tabele i uruchomi migracje.';
+      intro.textContent = 'Podaj adres serwera MariaDB/MySQL, dane logowania i nazwę docelowej bazy. Gdy automatyczne tworzenie jest włączone, test połączenia sprawdza tylko serwer oraz login/hasło. Istnienie bazy jest sprawdzane dopiero po wybraniu „Kontynuuj”.';
     }
 
     const databaseName = document.getElementById('db_name');
@@ -61,7 +61,7 @@
 
     const row = document.createElement('label');
     row.className = 'check-row database-create-row';
-    row.innerHTML = '<input type="hidden" name="create_database_if_missing" value="0"><input type="checkbox" value="1" id="createDatabaseIfMissing" name="create_database_if_missing" checked> <span><strong>Utwórz bazę danych, jeśli nie istnieje</strong><br>Jeśli podana nazwa nie istnieje, instalator wykona <code>CREATE DATABASE</code> z kodowaniem UTF-8. Użytkownik MySQL/MariaDB musi mieć uprawnienie do utworzenia bazy.</span>';
+    row.innerHTML = '<input type="hidden" name="create_database_if_missing" value="0"><input type="checkbox" value="1" id="createDatabaseIfMissing" name="create_database_if_missing" checked> <span><strong>Utwórz bazę danych, jeśli nie istnieje</strong><br>Opcja jest domyślnie włączona. „Testuj połączenie” sprawdzi wtedy tylko dostęp do serwera MariaDB/MySQL i poprawność loginu/hasła — nie sprawdzi, czy baza już istnieje i nie utworzy jej. Baza zostanie sprawdzona i w razie potrzeby utworzona dopiero po kliknięciu „Kontynuuj”.</span>';
     grid.insertAdjacentElement('afterend', row);
   }
 
@@ -70,13 +70,23 @@
   const dbButton = document.getElementById('testDatabase');
   dbButton?.addEventListener('click', async () => {
     const output = document.getElementById('databaseResult');
+    const createIfMissing = document.getElementById('createDatabaseIfMissing')?.checked ?? true;
     busy(dbButton, true, 'Sprawdzanie…');
-    showResult(output, 'loading', 'Sprawdzanie serwera i bazy danych…');
+    showResult(output, 'loading', createIfMissing
+      ? 'Sprawdzanie połączenia z serwerem MariaDB/MySQL…'
+      : 'Sprawdzanie połączenia z wybraną bazą danych…');
     try {
-      const data = await post('/install/test/database', values());
-      const created = data.database_created ? '<p><strong>Baza nie istniała i została utworzona automatycznie.</strong></p>' : '<p>Baza danych już istnieje — zostanie użyta bez ponownego tworzenia.</p>';
+      const request = values();
+      request.connection_test_only = true;
+      const data = await post('/install/test/database', request);
+
+      if (data.database_check_skipped) {
+        showResult(output, 'success', `<strong>Połączenie z serwerem MariaDB/MySQL działa.</strong><p>Login i hasło zostały zaakceptowane. Ponieważ zaznaczono automatyczne tworzenie bazy, test celowo nie sprawdza, czy baza <code>${escape(data.database_name)}</code> już istnieje. Baza zostanie sprawdzona i w razie potrzeby utworzona po kliknięciu „Kontynuuj”.</p><dl><div><dt>Serwer</dt><dd>${escape(data.server_version)}</dd></div><div><dt>Zakres testu</dt><dd>serwer + dane logowania</dd></div></dl>`);
+        return;
+      }
+
       const warning = data.warning ? `<p class="result-warning">${escape(data.warning)}</p>` : '';
-      showResult(output, 'success', `<strong>Połączenie i dostęp do bazy są prawidłowe.</strong>${created}<dl><div><dt>Serwer</dt><dd>${escape(data.server_version)}</dd></div><div><dt>Kodowanie</dt><dd>${escape(data.charset)}</dd></div><div><dt>Sortowanie</dt><dd>${escape(data.collation)}</dd></div><div><dt>Liczba tabel</dt><dd>${escape(data.table_count)}</dd></div></dl>${warning}`);
+      showResult(output, 'success', `<strong>Połączenie z wybraną bazą danych działa.</strong><p>Baza istnieje i użytkownik może tworzyć w niej tabele.</p><dl><div><dt>Serwer</dt><dd>${escape(data.server_version)}</dd></div><div><dt>Kodowanie</dt><dd>${escape(data.charset)}</dd></div><div><dt>Sortowanie</dt><dd>${escape(data.collation)}</dd></div><div><dt>Liczba tabel</dt><dd>${escape(data.table_count)}</dd></div></dl>${warning}`);
     } catch (error) {
       showResult(output, 'error', `<strong>Sprawdzenie bazy nie powiodło się.</strong><p>${escape(error.message)}</p>`);
     } finally { busy(dbButton, false); }
