@@ -3,6 +3,7 @@
 declare(strict_types=1);
 
 use CloudPortal\Application;
+use CloudPortal\Controllers\AdminResourceDetailsPageController;
 use CloudPortal\Controllers\AuthController;
 use CloudPortal\Controllers\PortalController;
 use CloudPortal\Controllers\ProjectDetailsPageController;
@@ -16,6 +17,7 @@ return static function (Router $router, Application $app): void {
     $proxmoxSetup = new ProxmoxSetupController($app);
     $auth = new AuthController($app);
     $portal = new PortalController($app);
+    $adminResourceDetails = new AdminResourceDetailsPageController($app);
     $projectDetails = new ProjectDetailsPageController($app);
     $vmDetails = new VmDetailsPageController($app);
 
@@ -31,6 +33,7 @@ return static function (Router $router, Application $app): void {
     $router->add('POST', '/login', [$auth, 'login']);
     $router->add('POST', '/logout', [$auth, 'logout']);
     $router->add('GET', '/', [$portal, 'home']);
+    $router->add('GET', '/admin/{resource}/{id}', [$adminResourceDetails, 'show']);
     $router->add('GET', '/projects/{id}', [$projectDetails, 'show']);
     $router->add('GET', '/vms/{id}', [$vmDetails, 'portal']);
     $router->add('GET', '/infrastructure/vms/{connectionId}/{node}/{vmid}', [$vmDetails, 'live']);
