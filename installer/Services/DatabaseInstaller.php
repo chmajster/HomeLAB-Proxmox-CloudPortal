@@ -26,30 +26,30 @@ final class DatabaseInstaller
     /** @param array<string,mixed> $config @return array<string,mixed> */
     public function test(array $config): array
     {
-        $databaseCreated = $this->ensureDatabaseExists($config);
-        $pdo = $this->connectDatabase($config);
-        $probe = 'cloud_portal_probe_' . bin2hex(random_bytes(5));
-        try {
-            $pdo->exec("CREATE TEMPORARY TABLE {$probe} (id INT PRIMARY KEY) ENGINE=InnoDB");
-            $pdo->exec("DROP TEMPORARY TABLE {$probe}");
-        } catch (\Throwable) {
-            throw new \RuntimeException('Użytkownik bazy danych nie ma uprawnienia do tworzenia tabel w wybranej bazie.');
+        $connectionOnly = (bool) ($config['connection_test_only'] ?? false);
+        $createIfMissing = !array_key_exists('create_if_missing', $config) || (bool) $config['create_if_missing'];
+
+        if ($connectionOnly && $createIfMissing) {
+            $pdo = $this->connectServer($config);
+            return [
+                'server_version' => $pdo->getAttribute(PDO::ATTR_SERVER_VERSION),
+                'connection_scope' => 'server',
+                'database_check_skipped' => true,
+                'database_created' => false,
+                'database_name' => (string) ($config['name'] ?? ''),
+                'charset' => null,
+                'collation' => null,
+                'table_count' => null,
+                'portal_table_count' => 0,
+                'existing_tables' => false,
+                'compatible_portal_schema' => false,
+                'warning' => null,
+                'message' => 'Połączenie z serwerem MariaDB/MySQL działa. Dane logowania zostały zaakceptowane. Istnienie wskazanej bazy nie było sprawdzane.',
+            ];
         }
-        $tables = $this->tables($pdo);
-        $portalTables = array_values(array_intersect(self::REQUIRED_TABLES, $tables));
-        $charset = $pdo->query('SELECT @@character_set_database')->fetchColumn();
-        $collation = $pdo->query('SELECT @@collation_database')->fetchColumn();
-        return [
-            'server_version' => $pdo->getAttribute(PDO::ATTR_SERVER_VERSION),
-            'charset' => (string) $charset,
-            'collation' => (string) $collation,
-            'table_count' => count($tables),
-            'portal_table_count' => count($portalTables),
-            'existing_tables' => $tables !== [],
-            'compatible_portal_schema' => $this->hasSchemaMarker($pdo),
-            'database_created' => $databaseCreated,
-            'warning' => $tables === [] ? null : 'Baza nie jest pusta. Instalator nie usunie ani nie nadpisze istniejących tabel.',
-        ];
+
+        $databaseCreated = $this->ensureDatabaseExists($config);
+        return $this->inspectDatabase($config, $databaseCreated);
     }
 
     /** @param array<string,mixed> $config @return array{version:string,tables:int} */
@@ -112,14 +112,14 @@ final class DatabaseInstaller
 
         $createIfMissing = !array_key_exists('create_if_missing', $config) || (bool) $config['create_if_missing'];
         if (!$createIfMissing) {
-            throw new \RuntimeException('Wskazana baza danych nie istnieje. Zaznacz „Utwórz bazę danych, jeśli nie istnieje” albo utwórz bazę ręcznie.');
+            throw new \RuntimeException('Połączenie z serwerem działa, ale wskazana baza danych nie istnieje. Zaznacz „Utwórz bazę danych, jeśli nie istnieje” albo utwórz bazę ręcznie.');
         }
 
         try {
             $pdo->exec("CREATE DATABASE IF NOT EXISTS {$identifier} CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci");
         } catch (\Throwable $exception) {
             throw new \RuntimeException(
-                'Baza danych nie istnieje, a podany użytkownik nie może jej utworzyć. Nadaj mu uprawnienie CREATE DATABASE albo utwórz bazę ręcznie.',
+                'Połączenie z serwerem i dane logowania są prawidłowe, ale użytkownik nie ma uprawnienia do utworzenia bazy danych. Nadaj uprawnienie CREATE DATABASE albo utwórz bazę ręcznie.',
                 0,
                 $exception,
             );
@@ -139,6 +139,38 @@ final class DatabaseInstaller
         return array_map('strtolower', $pdo->query('SELECT table_name FROM information_schema.tables WHERE table_schema = DATABASE()')->fetchAll(PDO::FETCH_COLUMN));
     }
 
+    /** @param array<string,mixed> $config @return array<string,mixed> */
+    private function inspectDatabase(array $config, bool $databaseCreated): array
+    {
+        $pdo = $this->connectDatabase($config);
+        $probe = 'cloud_portal_probe_' . bin2hex(random_bytes(5));
+        try {
+            $pdo->exec("CREATE TEMPORARY TABLE {$probe} (id INT PRIMARY KEY) ENGINE=InnoDB");
+            $pdo->exec("DROP TEMPORARY TABLE {$probe}");
+        } catch (\Throwable) {
+            throw new \RuntimeException('Połączenie z bazą działa, ale użytkownik nie ma uprawnienia do tworzenia tabel. Nadaj uprawnienie CREATE dla tej bazy.');
+        }
+
+        $tables = $this->tables($pdo);
+        $portalTables = array_values(array_intersect(self::REQUIRED_TABLES, $tables));
+        $charset = $pdo->query('SELECT @@character_set_database')->fetchColumn();
+        $collation = $pdo->query('SELECT @@collation_database')->fetchColumn();
+
+        return [
+            'server_version' => $pdo->getAttribute(PDO::ATTR_SERVER_VERSION),
+            'connection_scope' => 'database',
+            'database_check_skipped' => false,
+            'charset' => (string) $charset,
+            'collation' => (string) $collation,
+            'table_count' => count($tables),
+            'portal_table_count' => count($portalTables),
+            'existing_tables' => $tables !== [],
+            'compatible_portal_schema' => $this->hasSchemaMarker($pdo),
+            'database_created' => $databaseCreated,
+            'warning' => $tables === [] ? null : 'Baza nie jest pusta. Instalator nie usunie ani nie nadpisze istniejących tabel.',
+        ];
+    }
+
     /** @param array<string,mixed> $config */
     private function connectServer(array $config): PDO
     {
@@ -152,7 +184,7 @@ final class DatabaseInstaller
             $pdo->exec("SET SESSION time_zone = '+00:00'");
             return $pdo;
         } catch (\Throwable $exception) {
-            throw new \RuntimeException('Database connection failed. Verify the host, database name, user and password.', 0, $exception);
+            throw new \RuntimeException($this->connectionFailureMessage($exception, false), 0, $exception);
         }
     }
 
@@ -169,8 +201,44 @@ final class DatabaseInstaller
             $pdo->exec("SET SESSION time_zone = '+00:00'");
             return $pdo;
         } catch (\Throwable $exception) {
-            throw new \RuntimeException('Database connection failed. Verify the host, database name, user and password.', 0, $exception);
+            throw new \RuntimeException($this->connectionFailureMessage($exception, true), 0, $exception);
         }
+    }
+
+    private function connectionFailureMessage(\Throwable $exception, bool $databaseSelected): string
+    {
+        $nativeCode = 0;
+        if ($exception instanceof \PDOException && is_array($exception->errorInfo) && isset($exception->errorInfo[1])) {
+            $nativeCode = (int) $exception->errorInfo[1];
+        }
+        $raw = strtolower($exception->getMessage());
+        if ($nativeCode === 0 && preg_match('/\[(\d{4})\]/', $exception->getMessage(), $matches) === 1) {
+            $nativeCode = (int) $matches[1];
+        }
+
+        if ($nativeCode === 1044) {
+            return 'Login i hasło zostały zaakceptowane, ale użytkownik nie ma dostępu do wskazanej bazy danych. Sprawdź uprawnienia GRANT dla tego użytkownika.';
+        }
+        if ($nativeCode === 1045 || str_contains($raw, 'access denied for user')) {
+            return 'Serwer MariaDB/MySQL odrzucił logowanie. Sprawdź login i hasło. Jeśli są poprawne, sprawdź również, czy to konto może łączyć się z adresu tego serwera WWW.';
+        }
+        if ($nativeCode === 1049 || str_contains($raw, 'unknown database')) {
+            return 'Połączenie z serwerem i dane logowania są prawidłowe, ale wskazana baza danych nie istnieje.';
+        }
+        if (in_array($nativeCode, [2002, 2003, 2005], true)
+            || str_contains($raw, 'connection refused')
+            || str_contains($raw, 'getaddrinfo')
+            || str_contains($raw, 'name or service not known')
+            || str_contains($raw, 'no route to host')) {
+            return 'Nie można połączyć się z serwerem MariaDB/MySQL. Sprawdź host, port, czy usługa bazy działa, nasłuchuje na tym adresie oraz czy firewall zezwala na połączenie.';
+        }
+        if (str_contains($raw, 'timed out') || str_contains($raw, 'timeout')) {
+            return 'Przekroczono czas oczekiwania na połączenie z MariaDB/MySQL. Sprawdź host, port, trasę sieciową i reguły firewalla.';
+        }
+
+        return $databaseSelected
+            ? 'Nie udało się połączyć z wybraną bazą danych. Host i port mogą działać, ale należy sprawdzić login, hasło, nazwę bazy oraz uprawnienia użytkownika.'
+            : 'Nie udało się połączyć z serwerem MariaDB/MySQL. Sprawdź host, port, login i hasło.';
     }
 
     private function databaseIdentifier(string $database): string
