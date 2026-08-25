@@ -18,7 +18,7 @@ final class HostnameGenerator
         $user = $this->value('SELECT username FROM users WHERE id=:id', $userId, 'user-' . $userId);
         $counter = $this->nextCounter($projectId);
 
-        $hostname = $this->expandPattern($project, $user, $counter);
+        $hostname = $this->hostnamePrefix() . $this->expandPattern($project, $user, $counter);
         $hostname = $this->label($hostname, 'vm-' . $counter);
 
         if (strlen($hostname) > 63) {
@@ -62,6 +62,30 @@ final class HostnameGenerator
             throw new \RuntimeException('Hostname generator pattern contains an unsupported placeholder.');
         }
         return $expanded;
+    }
+
+    private function hostnamePrefix(): string
+    {
+        $statement = $this->pdo->prepare("SELECT value FROM settings WHERE setting_key='hostname_generator.prefix' LIMIT 1");
+        $statement->execute();
+        $raw = $statement->fetchColumn();
+        if (!is_string($raw) || trim($raw) === '') {
+            return '';
+        }
+
+        try {
+            $value = json_decode($raw, true, 16, JSON_THROW_ON_ERROR);
+        } catch (\JsonException) {
+            return '';
+        }
+        if (!is_string($value)) {
+            return '';
+        }
+
+        $prefix = strtolower(trim($value));
+        $prefix = preg_replace('/[^a-z0-9-]+/', '-', $prefix) ?? '';
+        $prefix = ltrim($prefix, '-');
+        return substr($prefix, 0, 32);
     }
 
     private function nextCounter(int $projectId): int
