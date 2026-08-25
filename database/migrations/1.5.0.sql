@@ -66,3 +66,17 @@ ALTER TABLE audit_logs
     ADD CONSTRAINT fk_audit_project FOREIGN KEY (project_id) REFERENCES projects(id) ON DELETE SET NULL,
     ADD CONSTRAINT fk_audit_vm FOREIGN KEY (virtual_machine_id) REFERENCES virtual_machines(id) ON DELETE SET NULL,
     ADD CONSTRAINT fk_audit_job FOREIGN KEY (job_id) REFERENCES jobs(id) ON DELETE SET NULL;
+
+UPDATE audit_logs a
+JOIN jobs j ON a.resource_type='job' AND a.resource_id=j.public_id
+SET a.job_id=j.id,
+    a.project_id=COALESCE(a.project_id,j.project_id),
+    a.virtual_machine_id=COALESCE(a.virtual_machine_id,j.virtual_machine_id),
+    a.proxmox_upid=COALESCE(a.proxmox_upid,j.proxmox_upid)
+WHERE a.job_id IS NULL;
+
+UPDATE audit_logs a
+JOIN virtual_machines vm ON a.resource_type='virtual_machine' AND a.resource_id=CAST(vm.id AS CHAR)
+SET a.virtual_machine_id=vm.id,
+    a.project_id=COALESCE(a.project_id,vm.project_id)
+WHERE a.virtual_machine_id IS NULL;
