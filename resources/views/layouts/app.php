@@ -14,6 +14,9 @@ $assetVersion = static function (string $path) use ($assetRoot): string {
   <title><?= htmlspecialchars((string) $appName, ENT_QUOTES, 'UTF-8') ?></title>
   <script src="<?= htmlspecialchars((string) $basePath, ENT_QUOTES, 'UTF-8') ?>/assets/js/theme.js?v=<?= $assetVersion('js/theme.js') ?>"></script>
   <link href="<?= htmlspecialchars((string) $basePath, ENT_QUOTES, 'UTF-8') ?>/assets/css/app.css?v=<?= $assetVersion('css/app.css') ?>" rel="stylesheet">
+  <?php if (in_array($page, ['vms', 'vm-details', 'templates', 'settings'], true)): ?>
+    <link href="<?= htmlspecialchars((string) $basePath, ENT_QUOTES, 'UTF-8') ?>/assets/css/vm-experience.css?v=<?= $assetVersion('css/vm-experience.css') ?>" rel="stylesheet">
+  <?php endif; ?>
   <?php if ($page === 'templates'): ?>
     <link href="<?= htmlspecialchars((string) $basePath, ENT_QUOTES, 'UTF-8') ?>/assets/css/template-field-help.css?v=<?= $assetVersion('css/template-field-help.css') ?>" rel="stylesheet">
   <?php endif; ?>
@@ -32,17 +35,22 @@ $assetVersion = static function (string $path) use ($assetRoot): string {
   <script src="<?= htmlspecialchars((string) $basePath, ENT_QUOTES, 'UTF-8') ?>/assets/js/cloud-features.js?v=<?= $assetVersion('js/cloud-features.js') ?>" defer></script>
   <script src="<?= htmlspecialchars((string) $basePath, ENT_QUOTES, 'UTF-8') ?>/assets/js/portal-enhancements.js?v=<?= $assetVersion('js/portal-enhancements.js') ?>" defer></script>
   <script src="<?= htmlspecialchars((string) $basePath, ENT_QUOTES, 'UTF-8') ?>/assets/js/admin-resource-navigation.js?v=<?= $assetVersion('js/admin-resource-navigation.js') ?>" defer></script>
-  <?php if ($page === 'vm-details'): ?>
+  <?php if ($page === 'vms'): ?>
+    <script src="<?= htmlspecialchars((string) $basePath, ENT_QUOTES, 'UTF-8') ?>/assets/js/vm-list-enhancements.js?v=<?= $assetVersion('js/vm-list-enhancements.js') ?>" defer></script>
+  <?php elseif ($page === 'vm-details'): ?>
     <script src="<?= htmlspecialchars((string) $basePath, ENT_QUOTES, 'UTF-8') ?>/assets/js/vm-details.js?v=<?= $assetVersion('js/vm-details.js') ?>" defer></script>
     <script src="<?= htmlspecialchars((string) $basePath, ENT_QUOTES, 'UTF-8') ?>/assets/js/vm-admin-enhancements.js?v=<?= $assetVersion('js/vm-admin-enhancements.js') ?>" defer></script>
+    <script src="<?= htmlspecialchars((string) $basePath, ENT_QUOTES, 'UTF-8') ?>/assets/js/vm-management.js?v=<?= $assetVersion('js/vm-management.js') ?>" defer></script>
   <?php elseif ($page === 'project-details'): ?>
     <script src="<?= htmlspecialchars((string) $basePath, ENT_QUOTES, 'UTF-8') ?>/assets/js/project-details.js?v=<?= $assetVersion('js/project-details.js') ?>" defer></script>
   <?php elseif ($page === 'admin-resource-details'): ?>
     <script src="<?= htmlspecialchars((string) $basePath, ENT_QUOTES, 'UTF-8') ?>/assets/js/admin-resource-details.js?v=<?= $assetVersion('js/admin-resource-details.js') ?>" defer></script>
   <?php elseif ($page === 'templates'): ?>
     <script src="<?= htmlspecialchars((string) $basePath, ENT_QUOTES, 'UTF-8') ?>/assets/js/template-field-help.js?v=<?= $assetVersion('js/template-field-help.js') ?>" defer></script>
+    <script src="<?= htmlspecialchars((string) $basePath, ENT_QUOTES, 'UTF-8') ?>/assets/js/template-selector.js?v=<?= $assetVersion('js/template-selector.js') ?>" defer></script>
   <?php elseif ($page === 'settings'): ?>
     <script src="<?= htmlspecialchars((string) $basePath, ENT_QUOTES, 'UTF-8') ?>/assets/js/settings.js?v=<?= $assetVersion('js/settings.js') ?>" defer></script>
+    <script src="<?= htmlspecialchars((string) $basePath, ENT_QUOTES, 'UTF-8') ?>/assets/js/portal-settings-enhancements.js?v=<?= $assetVersion('js/portal-settings-enhancements.js') ?>" defer></script>
   <?php endif; ?>
 </body>
 </html>
