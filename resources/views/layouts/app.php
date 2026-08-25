@@ -28,6 +28,7 @@ $assetVersion = static function (string $path) use ($assetRoot): string {
   <script src="<?= htmlspecialchars((string) $basePath, ENT_QUOTES, 'UTF-8') ?>/assets/js/admin-resource-navigation.js?v=<?= $assetVersion('js/admin-resource-navigation.js') ?>" defer></script>
   <?php if ($page === 'vm-details'): ?>
     <script src="<?= htmlspecialchars((string) $basePath, ENT_QUOTES, 'UTF-8') ?>/assets/js/vm-details.js?v=<?= $assetVersion('js/vm-details.js') ?>" defer></script>
+    <script src="<?= htmlspecialchars((string) $basePath, ENT_QUOTES, 'UTF-8') ?>/assets/js/vm-admin-enhancements.js?v=<?= $assetVersion('js/vm-admin-enhancements.js') ?>" defer></script>
   <?php elseif ($page === 'project-details'): ?>
     <script src="<?= htmlspecialchars((string) $basePath, ENT_QUOTES, 'UTF-8') ?>/assets/js/project-details.js?v=<?= $assetVersion('js/project-details.js') ?>" defer></script>
   <?php elseif ($page === 'admin-resource-details'): ?>
