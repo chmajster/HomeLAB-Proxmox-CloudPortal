@@ -18,9 +18,6 @@ final class InstallerInput
         $createIfMissing = !array_key_exists('create_database_if_missing', $input)
             || filter_var($input['create_database_if_missing'], FILTER_VALIDATE_BOOL);
 
-        // Empty database name has two intentional meanings:
-        // - during "Test connection": test only the MariaDB/MySQL server and credentials;
-        // - during "Continue": use the default database name "cloudportal" and ensure it exists.
         if ($name === '') {
             if ($connectionTestOnly) {
                 $createIfMissing = true;
@@ -91,80 +88,29 @@ final class InstallerInput
     {
         $skip = filter_var($input['skip_proxmox'] ?? false, FILTER_VALIDATE_BOOL);
         if ($skip) return ['skipped' => true];
-
         $name = trim((string) ($input['connection_name'] ?? ''));
         $hostname = trim((string) ($input['hostname'] ?? ''));
         $hostname = preg_replace('#^https?://#i', '', rtrim($hostname, '/')) ?? '';
         $port = filter_var($input['port'] ?? 8006, FILTER_VALIDATE_INT, ['options' => ['min_range' => 1, 'max_range' => 65535]]);
         $realm = trim((string) ($input['realm'] ?? 'pve'));
-        $authMode = (string) ($input['proxmox_auth_mode'] ?? 'token');
-        $verifySsl = !isset($input['verify_ssl']) || filter_var($input['verify_ssl'], FILTER_VALIDATE_BOOL);
-
-        $fields = [];
-        if ($name === '' || mb_strlen($name) > 100) $fields['connection_name'] = 'Nazwa połączenia jest wymagana.';
-        if (!self::host($hostname)) $fields['hostname'] = 'Podaj prawidłowy hostname lub adres IP bez ścieżki URL.';
-        if ($port === false) $fields['port'] = 'Port musi być liczbą od 1 do 65535.';
-        if (preg_match('/^[A-Za-z0-9._-]{1,64}$/', $realm) !== 1) $fields['realm'] = 'Realm jest nieprawidłowy.';
-        if (!in_array($authMode, ['token', 'password'], true)) $fields['proxmox_auth_mode'] = 'Wybierz logowanie tokenem API albo loginem i hasłem.';
-
-        if ($authMode === 'password') {
-            $username = trim((string) ($input['proxmox_username'] ?? ''));
-            $password = (string) ($input['proxmox_password'] ?? '');
-            $tokenName = trim((string) ($input['api_token_name'] ?? 'cloudportal'));
-
-            $userMatches = [];
-            if (preg_match('/^(?<user>[A-Za-z0-9._-]+)(?:@(?<user_realm>[A-Za-z0-9._-]+))?$/', $username, $userMatches) !== 1) {
-                $fields['proxmox_username'] = 'Podaj login, np. root@pam albo admin@pve.';
-            }
-            if ($password === '' || strlen($password) > 1024) {
-                $fields['proxmox_password'] = 'Hasło Proxmox jest wymagane.';
-            }
-            if (preg_match('/^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$/', $tokenName) !== 1) {
-                $fields['api_token_name'] = 'Nazwa tokenu musi mieć 1-64 znaki: litery, cyfry, kropka, _ lub -.';
-            }
-            self::fail($fields, 'Popraw dane logowania Proxmox.');
-
-            $explicitRealm = (string) ($userMatches['user_realm'] ?? '');
-            if ($explicitRealm !== '') $realm = $explicitRealm;
-
-            return [
-                'skipped' => false,
-                'auth_mode' => 'password',
-                'name' => $name,
-                'hostname' => $hostname,
-                'port' => (int) $port,
-                'realm' => $realm,
-                'username' => $username,
-                'password' => $password,
-                'token_name' => $tokenName,
-                'verify_ssl' => $verifySsl,
-            ];
-        }
-
         $tokenId = trim((string) ($input['api_token_id'] ?? ''));
         $secret = (string) ($input['api_token_secret'] ?? '');
+        $fields = [];
+        if ($name === '' || mb_strlen($name) > 100) $fields['connection_name'] = 'Connection name is required.';
+        if (!self::host($hostname)) $fields['hostname'] = 'Enter a valid hostname or IP address without a path.';
+        if ($port === false) $fields['port'] = 'Port must be between 1 and 65535.';
+        if (preg_match('/^[A-Za-z0-9._-]{1,64}$/', $realm) !== 1) $fields['realm'] = 'Realm is invalid.';
         $tokenMatches = [];
-        if (preg_match('/^(?<user>[A-Za-z0-9._-]+)(?:@(?<token_realm>[A-Za-z0-9._-]+))?!(?<token>[A-Za-z0-9._-]+)$/', $tokenId, $tokenMatches) !== 1) {
-            $fields['api_token_id'] = 'Użyj formatu user!token lub user@realm!token, np. root@pam!cloudportal.';
-        }
-        if ($secret === '' || preg_match('/[\r\n]/', $secret)) {
-            $fields['api_token_secret'] = 'Wymagany jest sekret tokenu API.';
-        }
+        if (preg_match('/^(?<user>[A-Za-z0-9._-]+)(?:@(?<token_realm>[A-Za-z0-9._-]+))?!(?<token>[A-Za-z0-9._-]+)$/', $tokenId, $tokenMatches) !== 1) $fields['api_token_id'] = 'Użyj formatu user!token lub user@realm!token, np. root@pam!cloudportal. Sam login i hasło nie są tokenem API.';
+        if ($secret === '' || preg_match('/[\r\n]/', $secret)) $fields['api_token_secret'] = 'Wymagany jest sekret tokenu API (nie hasło użytkownika).';
         if (isset($fields['api_token_id'])) throw new InstallerValidationException('Nieprawidłowy Token ID Proxmox. ' . $fields['api_token_id'], $fields);
-        self::fail($fields, 'Popraw dane tokenu API Proxmox.');
+        self::fail($fields, 'Correct the Proxmox connection fields.');
         $explicitRealm = (string) ($tokenMatches['token_realm'] ?? '');
         if ($explicitRealm !== '') $realm = $explicitRealm;
-
         return [
-            'skipped' => false,
-            'auth_mode' => 'token',
-            'name' => $name,
-            'hostname' => $hostname,
-            'port' => (int) $port,
-            'realm' => $realm,
-            'token_id' => $tokenId,
-            'token_secret' => $secret,
-            'verify_ssl' => $verifySsl,
+            'skipped' => false, 'name' => $name, 'hostname' => $hostname, 'port' => (int) $port,
+            'realm' => $realm, 'token_id' => $tokenId, 'token_secret' => $secret,
+            'verify_ssl' => !isset($input['verify_ssl']) || filter_var($input['verify_ssl'], FILTER_VALIDATE_BOOL),
         ];
     }
 
