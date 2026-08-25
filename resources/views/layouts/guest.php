@@ -4,6 +4,7 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title><?= htmlspecialchars((string) ($appName ?? 'Algen Cloud Portal'), ENT_QUOTES, 'UTF-8') ?></title>
+  <link rel="icon" type="image/svg+xml" href="<?= htmlspecialchars((string) $basePath, ENT_QUOTES, 'UTF-8') ?>/assets/favicon.svg">
   <link href="<?= htmlspecialchars((string) $basePath, ENT_QUOTES, 'UTF-8') ?>/assets/css/app.css" rel="stylesheet">
 </head>
 <body class="guest-bg">
