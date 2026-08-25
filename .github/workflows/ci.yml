@@ -45,6 +45,40 @@ jobs:
       - run: composer test
       - run: composer test:smoke
 
+  mysql:
+    runs-on: ubuntu-latest
+    services:
+      mysql:
+        image: mysql:8.0
+        env:
+          MYSQL_ROOT_PASSWORD: root
+          MYSQL_DATABASE: cloud_portal_test
+          MYSQL_USER: portal
+          MYSQL_PASSWORD: portal
+        ports:
+          - 3306:3306
+        options: >-
+          --health-cmd="mysqladmin ping -h 127.0.0.1 -uroot -proot"
+          --health-interval=5s
+          --health-timeout=5s
+          --health-retries=20
+    env:
+      TEST_DB_DSN: mysql:host=127.0.0.1;port=3306;dbname=cloud_portal_test;charset=utf8mb4
+      TEST_DB_USER: portal
+      TEST_DB_PASSWORD: portal
+    steps:
+      - uses: actions/checkout@v4
+      - uses: shivammathur/setup-php@v2
+        with:
+          php-version: '8.3'
+          extensions: curl, json, mbstring, pdo_mysql, sodium
+          coverage: none
+      - run: composer install --no-interaction --prefer-dist
+      - run: composer validate --strict
+      - run: composer lint
+      - run: composer test
+      - run: composer test:smoke
+
   e2e:
     runs-on: ubuntu-latest
     steps:
