@@ -47,8 +47,9 @@
     showResult(output, 'loading', 'Łączenie z bazą danych…');
     try {
       const data = await post('/install/test/database', values());
+      const created = data.database_created ? '<p><strong>Baza nie istniała i została utworzona automatycznie.</strong></p>' : '';
       const warning = data.warning ? `<p class="result-warning">${escape(data.warning)}</p>` : '';
-      showResult(output, 'success', `<strong>Połączenie działa.</strong><dl><div><dt>Serwer</dt><dd>${escape(data.server_version)}</dd></div><div><dt>Charset</dt><dd>${escape(data.charset)}</dd></div><div><dt>Collation</dt><dd>${escape(data.collation)}</dd></div><div><dt>Tabele</dt><dd>${escape(data.table_count)}</dd></div></dl>${warning}`);
+      showResult(output, 'success', `<strong>Połączenie działa.</strong>${created}<dl><div><dt>Serwer</dt><dd>${escape(data.server_version)}</dd></div><div><dt>Charset</dt><dd>${escape(data.charset)}</dd></div><div><dt>Collation</dt><dd>${escape(data.collation)}</dd></div><div><dt>Tabele</dt><dd>${escape(data.table_count)}</dd></div></dl>${warning}`);
     } catch (error) {
       showResult(output, 'error', `<strong>Test nie powiódł się.</strong><p>${escape(error.message)}</p>`);
     } finally { busy(dbButton, false); }
