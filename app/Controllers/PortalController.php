@@ -7,6 +7,7 @@ namespace CloudPortal\Controllers;
 use CloudPortal\Application;
 use CloudPortal\Http\Request;
 use CloudPortal\Http\Response;
+use CloudPortal\Services\DNS\DnsSettingsService;
 
 final class PortalController
 {
@@ -27,6 +28,7 @@ final class PortalController
         if (in_array($page, $adminOnly, true)) {
             $this->app->auth()->requirePermission('admin.access');
         }
+        $dns = new DnsSettingsService($this->app->pdo(), $this->app->crypto(), $this->app->config);
         return Response::html($this->app->view->render('pages/portal', [
             'user' => $user,
             'isAdmin' => $this->app->auth()->isAdmin(),
@@ -34,8 +36,8 @@ final class PortalController
             'csrf' => $this->app->csrf->token(),
             'appName' => $this->app->setting('portal.name', $this->app->config->get('app.name')),
             'firstRun' => $this->provisioningReadinessChecklist(),
-            'managedProvisioning' => $this->managedProvisioningConfigured(),
-            'hostnamePattern' => (string) $this->app->config->get('hostname_generator.pattern', 'vm-{project}-{counter}'),
+            'managedProvisioning' => $dns->configured(),
+            'hostnamePattern' => $dns->hostnamePattern(),
         ]));
     }
 
@@ -73,12 +75,5 @@ final class PortalController
 
         if (!in_array(false, $ready, true)) return null;
         return $ready;
-    }
-
-    private function managedProvisioningConfigured(): bool
-    {
-        return trim((string) $this->app->config->get('dns.server_ip', '')) !== ''
-            && trim((string) $this->app->config->get('dns.api_token_encrypted', '')) !== ''
-            && trim((string) $this->app->config->get('hostname_generator.pattern', '')) !== '';
     }
 }

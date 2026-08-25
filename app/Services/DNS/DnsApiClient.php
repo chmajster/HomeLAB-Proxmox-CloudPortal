@@ -25,6 +25,40 @@ final class DnsApiClient implements DnsApiClientInterface
         }
     }
 
+    /** @return array{ok:bool,server_ip:string,port:int,scheme:string,forward_zone:string,forward_zones:list<string>,reverse_zones:list<string>} */
+    public function testConnection(?string $preferredForwardZone = null): array
+    {
+        $zones = $this->zones();
+        $forwardZones = [];
+        $reverseZones = [];
+        foreach ($zones as $zone) {
+            if (($zone['enabled'] ?? false) !== true || ($zone['managed'] ?? false) !== true) {
+                continue;
+            }
+            $name = strtolower(rtrim(trim((string) ($zone['name'] ?? '')), '.'));
+            if ($name === '') {
+                continue;
+            }
+            if (($zone['reverse'] ?? false) === true) {
+                $reverseZones[] = $name;
+            } else {
+                $forwardZones[] = $name;
+            }
+        }
+        sort($forwardZones);
+        sort($reverseZones);
+        $selected = $this->forwardZone($preferredForwardZone);
+        return [
+            'ok' => true,
+            'server_ip' => $this->serverIp,
+            'port' => $this->port,
+            'scheme' => $this->scheme,
+            'forward_zone' => $selected,
+            'forward_zones' => $forwardZones,
+            'reverse_zones' => $reverseZones,
+        ];
+    }
+
     public function ensureVmRecords(string $hostname, string $ipAddress, ?string $preferredForwardZone = null): array
     {
         if (filter_var($ipAddress, FILTER_VALIDATE_IP, FILTER_FLAG_IPV4) === false) {
@@ -109,7 +143,7 @@ final class DnsApiClient implements DnsApiClientInterface
         if ($preferred !== null && trim($preferred) !== '') {
             $needle = strtolower(rtrim(trim($preferred), '.'));
             foreach ($zones as $zone) {
-                if ($this->usableForward($zone) && strtolower((string) ($zone['name'] ?? '')) === $needle) {
+                if ($this->usableForward($zone) && strtolower(rtrim((string) ($zone['name'] ?? ''), '.')) === $needle) {
                     return $needle;
                 }
             }
@@ -120,7 +154,7 @@ final class DnsApiClient implements DnsApiClientInterface
         if (count($usable) !== 1) {
             throw new \RuntimeException('DNS forward zone is ambiguous. Configure dns.forward_zone when HomeLAB-DNS contains more than one managed forward zone.');
         }
-        return strtolower((string) $usable[0]['name']);
+        return strtolower(rtrim((string) $usable[0]['name'], '.'));
     }
 
     private function reverseZone(string $reverseFqdn): string

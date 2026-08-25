@@ -71,13 +71,13 @@ final class SafeUpdaterTest extends TestCase
         self::assertStringNotContainsString('fwrite(STDOUT, $password', $helper);
     }
 
-    public function testReleaseVersionWasIncrementedWithoutInventingSchemaMigration(): void
+    public function testApplicationVersionCanAdvanceWithoutInventingSchemaMigration(): void
     {
         $application = file_get_contents(dirname(__DIR__, 2) . '/app/Application.php');
         $migration = file_get_contents(dirname(__DIR__, 2) . '/app/Database/MigrationService.php');
         self::assertIsString($application);
         self::assertIsString($migration);
-        self::assertStringContainsString("public const VERSION = '1.4.0'", $application);
+        self::assertStringContainsString("public const VERSION = '1.5.0'", $application);
         self::assertStringContainsString("public const CURRENT_VERSION = '1.3.0'", $migration);
     }
 }

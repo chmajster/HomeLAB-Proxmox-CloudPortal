@@ -6,6 +6,7 @@ namespace CloudPortal\Services\Provisioning;
 
 use CloudPortal\Database\Database;
 use CloudPortal\Http\HttpException;
+use CloudPortal\Services\DNS\DnsSettingsService;
 use CloudPortal\Services\IPAM\IPAMService;
 use CloudPortal\Services\Placement\PlacementService;
 use CloudPortal\Services\Quota\QuotaExceeded;
@@ -33,13 +34,14 @@ final class ProvisioningRequestService
                 throw new HttpException(403, 'A user cannot provision resources for another account.');
             }
 
-            $managed = $this->managedRequested($input);
-            if ($managed && !$this->managedConfigured()) {
+            $dnsSettings = new DnsSettingsService($pdo, null, $this->config);
+            $managed = $this->managedRequested($dnsSettings, $input);
+            if ($managed && !$dnsSettings->configured()) {
                 throw new HttpException(422, 'Managed VM provisioning requires DNS API and hostname generator configuration.');
             }
 
             if ($managed) {
-                $generator = new HostnameGenerator($pdo, (string) $this->config?->get('hostname_generator.pattern', 'vm-{project}-{counter}'));
+                $generator = new HostnameGenerator($pdo, $dnsSettings->hostnamePattern());
                 $name = '';
                 for ($attempt = 0; $attempt < 100; $attempt++) {
                     $candidate = $generator->generate($projectId, $ownerId);
@@ -124,26 +126,22 @@ final class ProvisioningRequestService
     }
 
     /** @param array<string,mixed> $input */
-    private function managedRequested(array $input): bool
+    private function managedRequested(DnsSettingsService $dnsSettings, array $input): bool
     {
+        // When DNS integration is enabled in the panel, every new VM uses the
+        // managed flow. This guarantees DNS is created before the template is
+        // cloned instead of allowing a stale/forged form value to bypass it.
+        if ($dnsSettings->configured()) {
+            return true;
+        }
         if (!array_key_exists('managed_provisioning', $input)) {
-            return $this->managedConfigured();
+            return false;
         }
         $value = filter_var($input['managed_provisioning'], FILTER_VALIDATE_BOOL, FILTER_NULL_ON_FAILURE);
         if ($value === null) {
             throw new HttpException(422, 'managed_provisioning must be a boolean.');
         }
         return $value;
-    }
-
-    private function managedConfigured(): bool
-    {
-        if (!$this->config instanceof Config) {
-            return false;
-        }
-        return trim((string) $this->config->get('dns.server_ip', '')) !== ''
-            && trim((string) $this->config->get('dns.api_token_encrypted', '')) !== ''
-            && trim((string) $this->config->get('hostname_generator.pattern', '')) !== '';
     }
 
     private function nameExists(PDO $pdo, int $projectId, string $name): bool
