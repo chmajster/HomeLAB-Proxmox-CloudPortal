@@ -26,7 +26,8 @@ final class DatabaseInstaller
     /** @param array<string,mixed> $config @return array<string,mixed> */
     public function test(array $config): array
     {
-        $pdo = $this->connect($config);
+        $databaseCreated = $this->ensureDatabaseExists($config);
+        $pdo = $this->connectDatabase($config);
         $probe = 'cloud_portal_probe_' . bin2hex(random_bytes(5));
         try {
             $pdo->exec("CREATE TEMPORARY TABLE {$probe} (id INT PRIMARY KEY) ENGINE=InnoDB");
@@ -46,6 +47,7 @@ final class DatabaseInstaller
             'portal_table_count' => count($portalTables),
             'existing_tables' => $tables !== [],
             'compatible_portal_schema' => $this->hasSchemaMarker($pdo),
+            'database_created' => $databaseCreated,
             'warning' => $tables === [] ? null : 'The database is not empty. Existing tables will never be deleted or overwritten.',
         ];
     }
@@ -53,7 +55,8 @@ final class DatabaseInstaller
     /** @param array<string,mixed> $config @return array{version:string,tables:int} */
     public function initialize(array $config): array
     {
-        $pdo = $this->connect($config);
+        $this->ensureDatabaseExists($config);
+        $pdo = $this->connectDatabase($config);
         $database = (string) $config['name'];
         $lockName = 'cloud_portal_install_' . substr(hash('sha256', $database), 0, 32);
         $lock = $pdo->prepare('SELECT GET_LOCK(:name, 10)');
@@ -88,6 +91,70 @@ final class DatabaseInstaller
     /** @param array<string,mixed> $config */
     public function connect(array $config): PDO
     {
+        $this->ensureDatabaseExists($config);
+        return $this->connectDatabase($config);
+    }
+
+    /**
+     * Creates the configured database only when it is missing.
+     *
+     * @param array<string,mixed> $config
+     * @return bool true when the database was created by this call
+     */
+    public function ensureDatabaseExists(array $config): bool
+    {
+        $database = (string) ($config['name'] ?? '');
+        $identifier = $this->databaseIdentifier($database);
+        $pdo = $this->connectServer($config);
+
+        $exists = $pdo->prepare('SELECT 1 FROM information_schema.SCHEMATA WHERE SCHEMA_NAME = :database LIMIT 1');
+        $exists->execute(['database' => $database]);
+        if ($exists->fetchColumn()) return false;
+
+        try {
+            $pdo->exec("CREATE DATABASE IF NOT EXISTS {$identifier} CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci");
+        } catch (\Throwable $exception) {
+            throw new \RuntimeException(
+                'Database does not exist and the configured user cannot create it. Grant CREATE DATABASE permission or create the database manually.',
+                0,
+                $exception,
+            );
+        }
+
+        $exists->execute(['database' => $database]);
+        if (!$exists->fetchColumn()) {
+            throw new \RuntimeException('Database creation did not complete successfully.');
+        }
+
+        return true;
+    }
+
+    /** @return list<string> */
+    public function tables(PDO $pdo): array
+    {
+        return array_map('strtolower', $pdo->query('SELECT table_name FROM information_schema.tables WHERE table_schema = DATABASE()')->fetchAll(PDO::FETCH_COLUMN));
+    }
+
+    /** @param array<string,mixed> $config */
+    private function connectServer(array $config): PDO
+    {
+        try {
+            $pdo = new PDO(
+                sprintf('mysql:host=%s;port=%d;charset=utf8mb4', $config['host'], $config['port']),
+                (string) $config['user'],
+                (string) $config['password'],
+                [PDO::ATTR_ERRMODE => PDO::ERRMODE_EXCEPTION, PDO::ATTR_DEFAULT_FETCH_MODE => PDO::FETCH_ASSOC, PDO::ATTR_EMULATE_PREPARES => false, PDO::ATTR_TIMEOUT => 8],
+            );
+            $pdo->exec("SET SESSION time_zone = '+00:00'");
+            return $pdo;
+        } catch (\Throwable $exception) {
+            throw new \RuntimeException('Database connection failed. Verify the host, database name, user and password.', 0, $exception);
+        }
+    }
+
+    /** @param array<string,mixed> $config */
+    private function connectDatabase(array $config): PDO
+    {
         try {
             $pdo = new PDO(
                 sprintf('mysql:host=%s;port=%d;dbname=%s;charset=utf8mb4', $config['host'], $config['port'], $config['name']),
@@ -102,10 +169,12 @@ final class DatabaseInstaller
         }
     }
 
-    /** @return list<string> */
-    public function tables(PDO $pdo): array
+    private function databaseIdentifier(string $database): string
     {
-        return array_map('strtolower', $pdo->query('SELECT table_name FROM information_schema.tables WHERE table_schema = DATABASE()')->fetchAll(PDO::FETCH_COLUMN));
+        if (preg_match('/^[A-Za-z0-9_$-]{1,64}$/', $database) !== 1) {
+            throw new \RuntimeException('Database name is invalid.');
+        }
+        return '`' . $database . '`';
     }
 
     private function hasSchemaMarker(PDO $pdo): bool
