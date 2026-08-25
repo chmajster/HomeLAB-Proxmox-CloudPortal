@@ -118,6 +118,15 @@
   enhanceProjectUi();
 
   document.addEventListener('click', async event => {
+    const projectDetails = event.target.closest('[data-admin-action="project-details"][data-id]');
+    if (projectDetails) {
+      event.preventDefault();
+      event.stopImmediatePropagation();
+      const id = Number(projectDetails.dataset.id);
+      if (Number.isInteger(id) && id > 0) location.assign(appUrl(`/projects/${id}`));
+      return;
+    }
+
     const portalDetails = event.target.closest('[data-action="details"][data-id]');
     if (portalDetails) {
       event.preventDefault();
