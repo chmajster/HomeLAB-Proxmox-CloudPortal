@@ -25,6 +25,11 @@ if (!$app->installed()) {
     fwrite(STDERR, "Portal is not installed.\n");
     exit(1);
 }
+$maintenancePath = $root . '/storage/maintenance.json';
+if (is_file($maintenancePath)) {
+    fwrite(STDERR, "Portal maintenance mode is active; worker is not starting.\n");
+    exit(0);
+}
 $database = new Database($app->config);
 $jobs = new JobRepository($database->pdo());
 $clients = new ProxmoxClientFactory($database->pdo(), $app->crypto());
@@ -107,6 +112,10 @@ $reconcileFailed();
 $once = in_array('--once', $argv, true);
 $lastHeartbeat = time();
 do {
+    if (is_file($maintenancePath)) {
+        fwrite(STDERR, "Portal maintenance mode became active; worker will not claim another job.\n");
+        break;
+    }
     if (time() - $lastHeartbeat >= 15) {
         $heartbeat->beat();
         $lastHeartbeat = time();
