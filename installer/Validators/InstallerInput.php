@@ -18,20 +18,23 @@ final class InstallerInput
         $createIfMissing = !array_key_exists('create_database_if_missing', $input)
             || filter_var($input['create_database_if_missing'], FILTER_VALIDATE_BOOL);
 
-        // During the explicit connection test an empty database name means
-        // "test only the MariaDB/MySQL server and credentials". The database
-        // name remains mandatory for the actual installer submission.
-        if ($connectionTestOnly && $name === '') {
-            $createIfMissing = true;
+        // Empty database name has two intentional meanings:
+        // - during "Test connection": test only the MariaDB/MySQL server and credentials;
+        // - during "Continue": use the default database name "cloudportal" and ensure it exists.
+        if ($name === '') {
+            if ($connectionTestOnly) {
+                $createIfMissing = true;
+            } else {
+                $name = 'cloudportal';
+                $createIfMissing = true;
+            }
         }
 
         $fields = [];
         if ($driver !== 'mysql') $fields['db_driver'] = 'Obsługiwane bazy: MariaDB / MySQL.';
         if (!self::host($host)) $fields['db_host'] = 'Podaj prawidłowy hostname lub adres IP serwera bazy danych.';
         if ($port === false) $fields['db_port'] = 'Port musi być liczbą od 1 do 65535.';
-        if ($name === '' && !$connectionTestOnly) {
-            $fields['db_name'] = 'Nazwa bazy danych jest wymagana przed przejściem dalej.';
-        } elseif ($name !== '' && preg_match('/^[A-Za-z0-9_$-]{1,64}$/', $name) !== 1) {
+        if ($name !== '' && preg_match('/^[A-Za-z0-9_$-]{1,64}$/', $name) !== 1) {
             $fields['db_name'] = 'Podaj prawidłową nazwę bazy danych (1-64 znaki: litery, cyfry, _, $, -).';
         }
         if ($user === '' || strlen($user) > 128) $fields['db_user'] = 'Użytkownik bazy danych jest wymagany.';
