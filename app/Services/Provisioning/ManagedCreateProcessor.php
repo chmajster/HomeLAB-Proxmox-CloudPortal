@@ -24,10 +24,11 @@ final class ManagedCreateProcessor
         private readonly ProxmoxProvisioner $localCreate,
         private readonly PlacedCreateProcessor $placedCreate,
         private readonly ?string $forwardZone = null,
-        private readonly string $setupCommand = '/usr/local/sbin/vm-setup.sh',
+        private readonly string $setupCommand = '/root/vm-setup.sh',
         private readonly string $puppetCommand = 'puppet agent --test',
         private readonly int $guestAgentTimeout = 300,
         private readonly int $guestCommandTimeout = 900,
+        private readonly ?TerraformProvisioner $terraformCreate = null,
     ) {
     }
 
@@ -50,7 +51,7 @@ final class ManagedCreateProcessor
             $ipAddress = (string) $provisioning['ip_address'];
             $vmId = (int) ($provisioning['virtual_machine_id'] ?? 0);
 
-            $state->begin($jobId, 4, 'Create A');
+            $state->transition($jobId, 'DNS_CONFIGURING', 4, 'Create DNS records');
             $dns = $this->dns->ensureVmRecords($hostname, $ipAddress, $this->forwardZone);
             $state->dns(
                 $jobId,
@@ -65,37 +66,41 @@ final class ManagedCreateProcessor
 
             $state->begin($jobId, 6, 'Verify DNS');
             $this->dns->verifyVmRecords($dns['fqdn'], $ipAddress);
-            $state->step($jobId, 6, 'Verify DNS', 'A and PTR verified against HomeLAB-DNS');
+            $state->transition($jobId, 'DNS_READY', 6, 'Verify DNS', 'A and PTR verified against HomeLAB-DNS');
 
             $final = $this->jobs->find((string) $job['public_id']);
             if (!is_array($final)) {
-                throw new \RuntimeException('Provisioning job disappeared before Proxmox create.');
+                throw new \RuntimeException('Provisioning job disappeared before VM creation.');
             }
 
-            $state->begin($jobId, 7, 'Create VM');
+            $state->transition($jobId, 'PROVISIONING', 7, 'Create VM');
             if ($vmId <= 0) {
-                if ((string) $job['type'] === 'vm.create.placed') {
-                    $this->placedCreate->process($job);
+                if ($this->terraformCreate instanceof TerraformProvisioner) {
+                    $created = $this->terraformCreate->create($job);
+                    $vmId = (int) ($created['virtual_machine_id'] ?? 0);
                 } else {
-                    $this->localCreate->process($job);
+                    if ((string) $job['type'] === 'vm.create.placed') {
+                        $this->placedCreate->process($job);
+                    } else {
+                        $this->localCreate->process($job);
+                    }
+                    $final = $this->jobs->find((string) $job['public_id']);
+                    if (!is_array($final)) {
+                        throw new \RuntimeException('Provisioning job disappeared after VM creation.');
+                    }
+                    if ((string) $final['status'] === 'queued') {
+                        return;
+                    }
+                    $vmId = (int) ($final['virtual_machine_id'] ?? 0);
                 }
-
-                $final = $this->jobs->find((string) $job['public_id']);
-                if (!is_array($final)) {
-                    throw new \RuntimeException('Provisioning job disappeared after Proxmox create.');
-                }
-                if ((string) $final['status'] === 'queued') {
-                    return;
-                }
-                $vmId = (int) ($final['virtual_machine_id'] ?? 0);
                 if ($vmId <= 0) {
-                    $message = (string) ($final['error_message'] ?? 'Proxmox VM creation failed.');
+                    $message = is_array($final) ? (string) ($final['error_message'] ?? 'VM creation failed.') : 'VM creation failed.';
                     $this->cleanupPreVmFailure($jobId, $job, $message);
                     return;
                 }
-                $state->step($jobId, 7, 'Create VM', 'VM ID ' . $vmId);
+                $state->step($jobId, 7, 'Create VM', 'VM database ID ' . $vmId);
             } else {
-                $state->step($jobId, 7, 'Create VM', 'VM ID ' . $vmId . ' already exists; provisioning resumed');
+                $state->step($jobId, 7, 'Create VM', 'VM database ID ' . $vmId . ' already exists; provisioning resumed');
             }
             $state->creating($jobId, $vmId);
 
@@ -103,7 +108,7 @@ final class ManagedCreateProcessor
             $client = $this->clients->forConnection((int) $vm['connection_id']);
             $path = '/nodes/' . rawurlencode((string) $vm['node_name']) . '/qemu/' . (int) $vm['vmid'];
 
-            $state->begin($jobId, 9, 'VM starts');
+            $state->transition($jobId, 'BOOTING', 9, 'VM starts');
             $current = $client->get($path . '/status/current');
             if (!is_array($current) || (string) ($current['status'] ?? '') !== 'running') {
                 $upid = $this->requireUpid($client->post($path . '/status/start'));
@@ -114,14 +119,16 @@ final class ManagedCreateProcessor
             $this->waitForGuestAgent($client, $path);
             $state->step($jobId, 9, 'VM starts', 'QEMU guest agent is responding');
 
-            $state->begin($jobId, 10, 'vm-setup.sh');
+            $state->transition($jobId, 'BOOTSTRAPPING', 10, 'vm-setup.sh');
             $this->execGuest($client, $path, $this->setupCommand, 'vm-setup.sh');
             $state->step($jobId, 10, 'vm-setup.sh', 'completed');
 
-            $state->begin($jobId, 11, 'Puppet');
+            $state->transition($jobId, 'PUPPET_ENROLLMENT', 11, 'Puppet enrollment');
             $this->execGuest($client, $path, $this->puppetCommand, 'Puppet');
-            $state->step($jobId, 11, 'Puppet', 'completed');
+            $state->step($jobId, 11, 'Puppet enrollment', 'completed');
 
+            $state->transition($jobId, 'CONFIGURING', 12, 'Final configuration');
+            $state->step($jobId, 12, 'Final configuration', 'guest bootstrap and Puppet run completed');
             $state->ready($jobId);
             $ready = $state->forJob($jobId);
             $latest = $this->jobs->find((string) $job['public_id']);
@@ -142,17 +149,37 @@ final class ManagedCreateProcessor
                 ['hostname' => $ready['hostname'], 'fqdn' => $ready['fqdn'], 'ip_address' => $ready['ip_address']],
             );
         } catch (Throwable $exception) {
-            if ($vmId > 0) {
+            $message = $exception->getMessage();
+            if ($vmId > 0 && $this->terraformCreate instanceof TerraformProvisioner) {
+                try {
+                    $state->rollback($jobId, 'Provisioning failed after VM creation; Terraform rollback started.');
+                    if ($this->terraformCreate->destroyForRollback($job, $vmId)) {
+                        $this->cleanupPreVmFailure($jobId, $job, $message, false);
+                        $state->error($jobId, $message);
+                    } else {
+                        $state->rollbackFailed($jobId, $message . ' Terraform could not verify VM removal; IP and DNS were retained.');
+                    }
+                } catch (Throwable $rollbackException) {
+                    try {
+                        $state->rollbackFailed($jobId, $message . ' Rollback error: ' . $rollbackException->getMessage());
+                    } catch (Throwable) {
+                    }
+                }
+            } elseif ($vmId > 0) {
                 $this->database->pdo()->prepare("UPDATE virtual_machines SET status='error',last_error=:error WHERE id=:id")
-                    ->execute(['error' => mb_substr($exception->getMessage(), 0, 1000), 'id' => $vmId]);
+                    ->execute(['error' => mb_substr($message, 0, 1000), 'id' => $vmId]);
+                try {
+                    $state->error($jobId, $message);
+                } catch (Throwable) {
+                }
             } else {
-                $this->cleanupPreVmFailure($jobId, $job, $exception->getMessage(), false);
+                $this->cleanupPreVmFailure($jobId, $job, $message, false);
+                try {
+                    $state->error($jobId, $message);
+                } catch (Throwable) {
+                }
             }
-            try {
-                $state->error($jobId, $exception->getMessage());
-            } catch (Throwable) {
-            }
-            $this->jobs->failPermanent($jobId, $exception->getMessage());
+            $this->jobs->failPermanent($jobId, $message);
             $this->audit->log(
                 $job['user_id'] === null ? null : (int) $job['user_id'],
                 '127.0.0.1',
@@ -160,7 +187,7 @@ final class ManagedCreateProcessor
                 'failure',
                 'job',
                 (string) $job['public_id'],
-                ['step_error' => $exception->getMessage(), 'virtual_machine_id' => $vmId ?: null],
+                ['step_error' => $message, 'virtual_machine_id' => $vmId ?: null],
             );
         }
     }
@@ -169,6 +196,24 @@ final class ManagedCreateProcessor
     private function cleanupPreVmFailure(int $jobId, array $job, string $message, bool $markJob = true): void
     {
         $stateRepository = new ProvisioningStateRepository($this->database->pdo());
+
+        // Fail closed: a reservation must never be released while a VM with this
+        // provisioning hostname may still exist. An API error is also treated as
+        // "unknown", therefore resources stay reserved for reconciliation.
+        if ($this->remoteVmExistsOrUnknown($job)) {
+            try {
+                $stateRepository->rollbackFailed(
+                    $jobId,
+                    $message . ' Proxmox VM absence could not be proven; IP and DNS were retained for reconciliation.',
+                );
+            } catch (Throwable) {
+            }
+            if ($markJob) {
+                $this->jobs->failPermanent($jobId, $message);
+            }
+            return;
+        }
+
         try {
             $state = $stateRepository->forJob($jobId);
             if (!empty($state['ptr_record_id']) && !empty($state['reverse_zone'])) {
@@ -185,12 +230,34 @@ final class ManagedCreateProcessor
                 (new QuotaService($pdo))->release((string) $job['reservation_key']);
             });
         }
-        try {
-            $stateRepository->error($jobId, $message);
-        } catch (Throwable) {
-        }
         if ($markJob) {
             $this->jobs->failPermanent($jobId, $message);
+        }
+    }
+
+    /** @param array<string,mixed> $job */
+    private function remoteVmExistsOrUnknown(array $job): bool
+    {
+        $payload = is_array($job['payload'] ?? null) ? $job['payload'] : [];
+        $name = trim((string) ($payload['name'] ?? ''));
+        if ($name === '' || empty($job['connection_id'])) {
+            return true;
+        }
+
+        try {
+            $client = $this->clients->forConnection((int) $job['connection_id']);
+            $resources = $client->get('/cluster/resources', ['type' => 'vm']);
+            if (!is_array($resources)) {
+                return true;
+            }
+            foreach ($resources as $resource) {
+                if (is_array($resource) && (string) ($resource['name'] ?? '') === $name) {
+                    return true;
+                }
+            }
+            return false;
+        } catch (Throwable) {
+            return true;
         }
     }
 

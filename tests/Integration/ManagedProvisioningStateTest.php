@@ -26,6 +26,15 @@ final class ManagedProvisioningStateTest extends MariaDbTestCase
         self::assertMatchesRegularExpression('/^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$/', $second);
     }
 
+    public function testHostnameGeneratorSupportsZeroPaddedCounter(): void
+    {
+        $fixture = $this->fixture();
+        $generator = new HostnameGenerator(self::$pdo, 'srl{counter:04}');
+
+        self::assertSame('srl0001', $generator->generate($fixture['project'], $fixture['user']));
+        self::assertSame('srl0002', $generator->generate($fixture['project'], $fixture['user']));
+    }
+
     public function testManagedJobCannotCompleteBeforeReady(): void
     {
         $fixture = $this->fixture();
@@ -55,6 +64,29 @@ final class ManagedProvisioningStateTest extends MariaDbTestCase
         $completed = $jobs->find($publicId);
         self::assertIsArray($completed);
         self::assertSame('completed', $completed['status']);
+        self::assertSame('READY', $states->forJob((int) $job['id'])['status']);
+    }
+
+    public function testProvisioningStateMachineTransitions(): void
+    {
+        $fixture = $this->fixture();
+        $jobs = new JobRepository(self::$pdo);
+        $publicId = $jobs->enqueue('vm.create', $fixture['user'], $fixture['project'], null, ['managed_provisioning' => true], Uuid::v4());
+        $job = $jobs->find($publicId);
+        self::assertIsArray($job);
+        $states = new ProvisioningStateRepository(self::$pdo);
+        $states->createReserved($publicId, (string) $job['reservation_key'], 'srl0001', '10.0.10.11');
+
+        $states->transition((int) $job['id'], 'DNS_CONFIGURING', 4, 'Create DNS');
+        self::assertSame('DNS_CONFIGURING', $states->forJob((int) $job['id'])['status']);
+        $states->transition((int) $job['id'], 'DNS_READY', 6, 'Verify DNS');
+        $states->transition((int) $job['id'], 'PROVISIONING', 7, 'Create VM');
+        $states->transition((int) $job['id'], 'BOOTING', 9, 'Boot');
+        $states->transition((int) $job['id'], 'BOOTSTRAPPING', 10, 'Bootstrap');
+        $states->transition((int) $job['id'], 'PUPPET_ENROLLMENT', 11, 'Puppet');
+        $states->transition((int) $job['id'], 'CONFIGURING', 12, 'Configure');
+        $states->ready((int) $job['id']);
+
         self::assertSame('READY', $states->forJob((int) $job['id'])['status']);
     }
 
