@@ -40,18 +40,45 @@
     element.innerHTML = html;
   }
 
+  function prepareDatabaseStep() {
+    if (form.dataset.step !== '2') return;
+
+    const heading = document.querySelector('.installer-header h1');
+    if (heading) heading.textContent = 'Konfiguracja bazy danych';
+
+    const intro = form.querySelector('.section-intro');
+    if (intro) {
+      intro.textContent = 'Podaj dane serwera MariaDB/MySQL i nazwę bazy. Domyślnie instalator utworzy wskazaną bazę, jeśli jeszcze nie istnieje, a następnie utworzy wymagane tabele i uruchomi migracje.';
+    }
+
+    const databaseName = document.getElementById('db_name');
+    const databaseNameLabel = form.querySelector('label[for="db_name"]');
+    if (databaseNameLabel) databaseNameLabel.textContent = 'Nazwa bazy danych';
+    if (databaseName) databaseName.placeholder = 'cloudportal';
+
+    const grid = databaseName?.closest('.form-grid');
+    if (!grid || document.getElementById('createDatabaseIfMissing')) return;
+
+    const row = document.createElement('label');
+    row.className = 'check-row database-create-row';
+    row.innerHTML = '<input type="hidden" name="create_database_if_missing" value="0"><input type="checkbox" value="1" id="createDatabaseIfMissing" name="create_database_if_missing" checked> <span><strong>Utwórz bazę danych, jeśli nie istnieje</strong><br>Jeśli podana nazwa nie istnieje, instalator wykona <code>CREATE DATABASE</code> z kodowaniem UTF-8. Użytkownik MySQL/MariaDB musi mieć uprawnienie do utworzenia bazy.</span>';
+    grid.insertAdjacentElement('afterend', row);
+  }
+
+  prepareDatabaseStep();
+
   const dbButton = document.getElementById('testDatabase');
   dbButton?.addEventListener('click', async () => {
     const output = document.getElementById('databaseResult');
-    busy(dbButton, true);
-    showResult(output, 'loading', 'Łączenie z bazą danych…');
+    busy(dbButton, true, 'Sprawdzanie…');
+    showResult(output, 'loading', 'Sprawdzanie serwera i bazy danych…');
     try {
       const data = await post('/install/test/database', values());
-      const created = data.database_created ? '<p><strong>Baza nie istniała i została utworzona automatycznie.</strong></p>' : '';
+      const created = data.database_created ? '<p><strong>Baza nie istniała i została utworzona automatycznie.</strong></p>' : '<p>Baza danych już istnieje — zostanie użyta bez ponownego tworzenia.</p>';
       const warning = data.warning ? `<p class="result-warning">${escape(data.warning)}</p>` : '';
-      showResult(output, 'success', `<strong>Połączenie działa.</strong>${created}<dl><div><dt>Serwer</dt><dd>${escape(data.server_version)}</dd></div><div><dt>Charset</dt><dd>${escape(data.charset)}</dd></div><div><dt>Collation</dt><dd>${escape(data.collation)}</dd></div><div><dt>Tabele</dt><dd>${escape(data.table_count)}</dd></div></dl>${warning}`);
+      showResult(output, 'success', `<strong>Połączenie i dostęp do bazy są prawidłowe.</strong>${created}<dl><div><dt>Serwer</dt><dd>${escape(data.server_version)}</dd></div><div><dt>Kodowanie</dt><dd>${escape(data.charset)}</dd></div><div><dt>Sortowanie</dt><dd>${escape(data.collation)}</dd></div><div><dt>Liczba tabel</dt><dd>${escape(data.table_count)}</dd></div></dl>${warning}`);
     } catch (error) {
-      showResult(output, 'error', `<strong>Test nie powiódł się.</strong><p>${escape(error.message)}</p>`);
+      showResult(output, 'error', `<strong>Sprawdzenie bazy nie powiodło się.</strong><p>${escape(error.message)}</p>`);
     } finally { busy(dbButton, false); }
   });
 
