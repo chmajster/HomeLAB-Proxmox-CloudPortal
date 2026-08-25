@@ -48,20 +48,24 @@
 
     const intro = form.querySelector('.section-intro');
     if (intro) {
-      intro.textContent = 'Podaj adres serwera MariaDB/MySQL, dane logowania i nazwę docelowej bazy. Gdy automatyczne tworzenie jest włączone, test połączenia sprawdza tylko serwer oraz login/hasło. Istnienie bazy jest sprawdzane dopiero po wybraniu „Kontynuuj”.';
+      intro.textContent = 'Podaj adres serwera MariaDB/MySQL i dane logowania. Nazwa bazy jest opcjonalna: jeśli pozostawisz ją pustą, test sprawdzi tylko połączenie z serwerem, a po kliknięciu „Kontynuuj” instalator użyje nazwy „cloudportal” i utworzy tę bazę, jeśli nie istnieje.';
     }
 
     const databaseName = document.getElementById('db_name');
     const databaseNameLabel = form.querySelector('label[for="db_name"]');
-    if (databaseNameLabel) databaseNameLabel.textContent = 'Nazwa bazy danych';
-    if (databaseName) databaseName.placeholder = 'cloudportal';
+    if (databaseNameLabel) databaseNameLabel.textContent = 'Nazwa bazy danych (opcjonalnie)';
+    if (databaseName) {
+      databaseName.placeholder = 'cloudportal';
+      databaseName.required = false;
+      databaseName.setAttribute('aria-description', 'Pozostaw puste, aby użyć domyślnej nazwy cloudportal po kliknięciu Kontynuuj.');
+    }
 
     const grid = databaseName?.closest('.form-grid');
     if (!grid || document.getElementById('createDatabaseIfMissing')) return;
 
     const row = document.createElement('label');
     row.className = 'check-row database-create-row';
-    row.innerHTML = '<input type="hidden" name="create_database_if_missing" value="0"><input type="checkbox" value="1" id="createDatabaseIfMissing" name="create_database_if_missing" checked> <span><strong>Utwórz bazę danych, jeśli nie istnieje</strong><br>Opcja jest domyślnie włączona. „Testuj połączenie” sprawdzi wtedy tylko dostęp do serwera MariaDB/MySQL i poprawność loginu/hasła — nie sprawdzi, czy baza już istnieje i nie utworzy jej. Baza zostanie sprawdzona i w razie potrzeby utworzona dopiero po kliknięciu „Kontynuuj”.</span>';
+    row.innerHTML = '<input type="hidden" name="create_database_if_missing" value="0"><input type="checkbox" value="1" id="createDatabaseIfMissing" name="create_database_if_missing" checked> <span><strong>Utwórz bazę danych, jeśli nie istnieje</strong><br>Opcja jest domyślnie włączona. „Testuj połączenie” sprawdzi wtedy tylko dostęp do serwera MariaDB/MySQL i poprawność loginu/hasła. Jeśli nazwa bazy pozostanie pusta, test również sprawdzi tylko serwer, a po „Kontynuuj” zostanie użyta domyślna nazwa <code>cloudportal</code>.</span>';
     grid.insertAdjacentElement('afterend', row);
   }
 
@@ -71,8 +75,12 @@
   dbButton?.addEventListener('click', async () => {
     const output = document.getElementById('databaseResult');
     const createIfMissing = document.getElementById('createDatabaseIfMissing')?.checked ?? true;
+    const databaseName = (document.getElementById('db_name')?.value || '').trim();
+    const databaseNameBlank = databaseName === '';
+    const serverOnly = createIfMissing || databaseNameBlank;
+
     busy(dbButton, true, 'Sprawdzanie…');
-    showResult(output, 'loading', createIfMissing
+    showResult(output, 'loading', serverOnly
       ? 'Sprawdzanie połączenia z serwerem MariaDB/MySQL…'
       : 'Sprawdzanie połączenia z wybraną bazą danych…');
     try {
@@ -81,7 +89,10 @@
       const data = await post('/install/test/database', request);
 
       if (data.database_check_skipped) {
-        showResult(output, 'success', `<strong>Połączenie z serwerem MariaDB/MySQL działa.</strong><p>Login i hasło zostały zaakceptowane. Ponieważ zaznaczono automatyczne tworzenie bazy, test celowo nie sprawdza, czy baza <code>${escape(data.database_name)}</code> już istnieje. Baza zostanie sprawdzona i w razie potrzeby utworzona po kliknięciu „Kontynuuj”.</p><dl><div><dt>Serwer</dt><dd>${escape(data.server_version)}</dd></div><div><dt>Zakres testu</dt><dd>serwer + dane logowania</dd></div></dl>`);
+        const explanation = databaseNameBlank
+          ? 'Pole „Nazwa bazy danych” jest puste, dlatego test celowo sprawdził tylko serwer i dane logowania. Po kliknięciu „Kontynuuj” instalator użyje nazwy <code>cloudportal</code> i utworzy tę bazę, jeśli nie istnieje.'
+          : `Ponieważ zaznaczono automatyczne tworzenie bazy, test celowo nie sprawdza, czy baza <code>${escape(data.database_name)}</code> już istnieje. Baza zostanie sprawdzona i w razie potrzeby utworzona po kliknięciu „Kontynuuj”.`;
+        showResult(output, 'success', `<strong>Połączenie z serwerem MariaDB/MySQL działa.</strong><p>Login i hasło zostały zaakceptowane. ${explanation}</p><dl><div><dt>Serwer</dt><dd>${escape(data.server_version)}</dd></div><div><dt>Zakres testu</dt><dd>serwer + dane logowania</dd></div></dl>`);
         return;
       }
 
