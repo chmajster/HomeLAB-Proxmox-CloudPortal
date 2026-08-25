@@ -67,12 +67,12 @@ final class HostnameGenerator
     private function nextCounter(int $projectId): int
     {
         $scope = 'project:' . $projectId . ':' . substr(hash('sha256', $this->pattern), 0, 32);
-        $insert = $this->pdo->prepare('INSERT INTO hostname_sequences(scope_key,last_value) VALUES(:scope,0) ON DUPLICATE KEY UPDATE scope_key=VALUES(scope_key)');
+        $insert = $this->pdo->prepare('INSERT INTO hostname_sequences(scope_key,`last_value`) VALUES(:scope,0) ON DUPLICATE KEY UPDATE scope_key=VALUES(scope_key)');
         $insert->execute(['scope' => $scope]);
-        $select = $this->pdo->prepare('SELECT last_value FROM hostname_sequences WHERE scope_key=:scope FOR UPDATE');
+        $select = $this->pdo->prepare('SELECT `last_value` FROM hostname_sequences WHERE scope_key=:scope FOR UPDATE');
         $select->execute(['scope' => $scope]);
         $counter = (int) $select->fetchColumn() + 1;
-        $update = $this->pdo->prepare('UPDATE hostname_sequences SET last_value=:counter WHERE scope_key=:scope');
+        $update = $this->pdo->prepare('UPDATE hostname_sequences SET `last_value`=:counter WHERE scope_key=:scope');
         $update->execute(['counter' => $counter, 'scope' => $scope]);
         return $counter;
     }
