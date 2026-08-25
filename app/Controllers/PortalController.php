@@ -20,7 +20,7 @@ final class PortalController
         $user = $this->app->auth()->user();
         if ($user === null) return Response::redirect($this->app->url('/login'));
         $page = trim($request->param('page'), '/');
-        $allowed = ['dashboard', 'vms', 'create-vm', 'projects', 'networks', 'templates', 'activity', 'users', 'infrastructure', 'proxmox', 'storages', 'plans', 'quotas', 'audit', 'settings'];
+        $allowed = ['dashboard', 'vms', 'create-vm', 'projects', 'networks', 'templates', 'cloud-init', 'ssh-keys', 'activity', 'users', 'infrastructure', 'proxmox', 'storages', 'plans', 'quotas', 'audit', 'settings'];
         if (!in_array($page, $allowed, true)) {
             return Response::redirect($this->app->url('/dashboard'));
         }
