@@ -68,7 +68,8 @@ ALTER TABLE audit_logs
     ADD CONSTRAINT fk_audit_job FOREIGN KEY (job_id) REFERENCES jobs(id) ON DELETE SET NULL;
 
 UPDATE audit_logs a
-JOIN jobs j ON a.resource_type='job' AND a.resource_id=j.public_id
+JOIN jobs j ON a.resource_type='job'
+    AND a.resource_id COLLATE utf8mb4_unicode_ci = j.public_id COLLATE utf8mb4_unicode_ci
 SET a.job_id=j.id,
     a.project_id=COALESCE(a.project_id,j.project_id),
     a.virtual_machine_id=COALESCE(a.virtual_machine_id,j.virtual_machine_id),
@@ -76,7 +77,8 @@ SET a.job_id=j.id,
 WHERE a.job_id IS NULL;
 
 UPDATE audit_logs a
-JOIN virtual_machines vm ON a.resource_type='virtual_machine' AND a.resource_id=CAST(vm.id AS CHAR)
+JOIN virtual_machines vm ON a.resource_type='virtual_machine'
+    AND a.resource_id COLLATE utf8mb4_unicode_ci = CAST(vm.id AS CHAR CHARACTER SET utf8mb4) COLLATE utf8mb4_unicode_ci
 SET a.virtual_machine_id=vm.id,
     a.project_id=COALESCE(a.project_id,vm.project_id)
 WHERE a.virtual_machine_id IS NULL;
