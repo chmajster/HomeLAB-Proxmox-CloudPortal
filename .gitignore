@@ -5,6 +5,10 @@
 /install.json
 /config/runtime.php
 /storage/installed.lock
+/storage/maintenance.json
+/storage/update-history.jsonl
+/storage/update.lock/
+/storage/backups/
 /storage/logs/*.log
 /storage/*.png
 /storage/cache/*

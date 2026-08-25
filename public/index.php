@@ -11,6 +11,32 @@ use CloudPortal\Installer\Services\JsonInstaller;
 use CloudPortal\Security\Headers;
 
 $root = dirname(__DIR__);
+$maintenancePath = $root . '/storage/maintenance.json';
+if (is_file($maintenancePath)) {
+    $maintenance = json_decode((string) @file_get_contents($maintenancePath), true);
+    $requestPath = (string) parse_url((string) ($_SERVER['REQUEST_URI'] ?? '/'), PHP_URL_PATH);
+    $accept = strtolower((string) ($_SERVER['HTTP_ACCEPT'] ?? ''));
+    $message = 'Portal is temporarily unavailable while maintenance is in progress.';
+    $startedAt = null;
+    if (is_array($maintenance)) {
+        $candidate = trim((string) ($maintenance['message'] ?? ''));
+        if ($candidate !== '') $message = mb_substr($candidate, 0, 300);
+        $startedAt = isset($maintenance['started_at']) ? (string) $maintenance['started_at'] : null;
+    }
+    http_response_code(503);
+    header('Retry-After: 60');
+    header('Cache-Control: no-store, private');
+    header('X-Content-Type-Options: nosniff');
+    if (str_contains($accept, 'application/json') || str_contains($requestPath, '/api/') || str_ends_with($requestPath, '/healthz') || str_ends_with($requestPath, '/readyz')) {
+        header('Content-Type: application/json; charset=utf-8');
+        echo json_encode(['error' => ['message' => $message, 'maintenance' => true, 'started_at' => $startedAt]], JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE);
+    } else {
+        header('Content-Type: text/plain; charset=utf-8');
+        echo $message . "\n";
+    }
+    exit;
+}
+
 $autoload = is_file($root . '/vendor/autoload.php') ? $root . '/vendor/autoload.php' : $root . '/autoload.php';
 if (!is_file($autoload)) {
     http_response_code(503);

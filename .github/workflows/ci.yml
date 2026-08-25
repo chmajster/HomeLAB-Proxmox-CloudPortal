@@ -41,6 +41,7 @@ jobs:
       - run: composer validate --strict
       - run: composer audit
       - run: composer lint
+      - run: bash -n update.sh
       - run: composer test
       - run: composer test:smoke
 
