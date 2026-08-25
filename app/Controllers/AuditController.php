@@ -129,11 +129,14 @@ final class AuditController
             $clauses[] = '(u.username LIKE :q OR a.ip_address LIKE :q OR a.action LIKE :q OR p.name LIKE :q OR vm.name LIKE :q OR j.public_id LIKE :q OR COALESCE(a.proxmox_upid,j.proxmox_upid) LIKE :q OR a.resource_id LIKE :q)';
             $params['q'] = '%' . $this->like($q) . '%';
         }
+        $timezoneName = (string) $this->app->setting('portal.timezone', 'Europe/Warsaw');
+        try { $inputTimezone = new DateTimeZone($timezoneName); }
+        catch (\Throwable) { $inputTimezone = new DateTimeZone('UTC'); }
         foreach (['from' => '>=', 'to' => '<='] as $field => $operator) {
             $value = trim((string) $request->query($field, ''));
             if ($value === '') continue;
             try {
-                $date = new DateTimeImmutable($value, new DateTimeZone('UTC'));
+                $date = new DateTimeImmutable($value, $inputTimezone);
             } catch (\Throwable) {
                 throw new HttpException(422, 'Nieprawidłowa data filtra ' . $field . '.');
             }
