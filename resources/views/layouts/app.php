@@ -12,6 +12,7 @@ $assetVersion = static function (string $path) use ($assetRoot): string {
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <meta name="color-scheme" content="dark light">
   <title><?= htmlspecialchars((string) $appName, ENT_QUOTES, 'UTF-8') ?></title>
+  <link rel="icon" type="image/svg+xml" href="<?= htmlspecialchars((string) $basePath, ENT_QUOTES, 'UTF-8') ?>/assets/favicon.svg?v=<?= $assetVersion('favicon.svg') ?>">
   <script src="<?= htmlspecialchars((string) $basePath, ENT_QUOTES, 'UTF-8') ?>/assets/js/theme.js?v=<?= $assetVersion('js/theme.js') ?>"></script>
   <link href="<?= htmlspecialchars((string) $basePath, ENT_QUOTES, 'UTF-8') ?>/assets/css/app.css?v=<?= $assetVersion('css/app.css') ?>" rel="stylesheet">
   <?php if (in_array($page, ['vms', 'vm-details', 'templates', 'settings'], true)): ?>

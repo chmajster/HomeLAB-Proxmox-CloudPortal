@@ -33,7 +33,8 @@ final class ProxmoxClient implements ProxmoxClientInterface, ProxmoxFileUploadIn
 
     public function get(string $path, array $query = []): mixed
     {
-        return $this->request('GET', $path, $query);
+        $result = $this->request('GET', $path, $query);
+        return $this->enrichQemuConfigDiskSize($path, $result);
     }
 
     public function post(string $path, array $data = []): mixed
@@ -178,6 +179,30 @@ final class ProxmoxClient implements ProxmoxClientInterface, ProxmoxFileUploadIn
             throw new ProxmoxException($message, $status, $safeResponse);
         }
         return is_array($decoded) ? ($decoded['data'] ?? null) : null;
+    }
+
+    private function enrichQemuConfigDiskSize(string $path, mixed $result): mixed
+    {
+        if (!is_array($result) || !is_string($result['scsi0'] ?? null)) return $result;
+        if (preg_match('/(?:^|,)size=\d+(?:\.\d+)?[KMGT](?:,|$)/i', $result['scsi0']) === 1) return $result;
+        if (preg_match('#^/nodes/([^/]+)/qemu/(\d+)/config$#', $path, $match) !== 1) return $result;
+
+        try {
+            $status = $this->request('GET', '/nodes/' . $match[1] . '/qemu/' . $match[2] . '/status/current', []);
+        } catch (ProxmoxException) {
+            return $result;
+        }
+        if (!is_array($status)) return $result;
+
+        $bytes = filter_var($status['maxdisk'] ?? null, FILTER_VALIDATE_INT, ['options' => ['min_range' => 1]]);
+        if ($bytes === false) return $result;
+
+        $sizeGiB = (int) $bytes / 1073741824;
+        $formatted = rtrim(rtrim(number_format($sizeGiB, 6, '.', ''), '0'), '.');
+        if ($formatted === '') return $result;
+
+        $result['scsi0'] .= ',size=' . $formatted . 'G';
+        return $result;
     }
 
     private function baseUrl(): string

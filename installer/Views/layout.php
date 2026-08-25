@@ -11,6 +11,7 @@ $installerJsVersion = is_file($installerJsPath) ? (string) filemtime($installerJ
   <meta name="theme-color" content="#f6f8fc">
   <meta name="robots" content="noindex,nofollow,noarchive">
   <title>Instalator — Algen Cloud Portal</title>
+  <link rel="icon" type="image/svg+xml" href="<?= htmlspecialchars((string) $basePath, ENT_QUOTES, 'UTF-8') ?>/assets/favicon.svg">
   <link href="<?= htmlspecialchars((string) $basePath, ENT_QUOTES, 'UTF-8') ?>/assets/css/app.css" rel="stylesheet">
 </head>
 <body class="installer-bg" data-base-path="<?= htmlspecialchars((string) $basePath, ENT_QUOTES, 'UTF-8') ?>">
