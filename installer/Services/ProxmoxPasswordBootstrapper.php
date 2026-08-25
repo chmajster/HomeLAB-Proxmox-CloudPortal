@@ -14,12 +14,32 @@ final class ProxmoxPasswordBootstrapper
     }
 
     /** @param array<string,mixed> $config @return array{token_id:string,token_secret:string,token_name:string,username:string} */
-    public function createToken(array $config): array
+    public function createToken(array $config, bool $replaceExisting = false): array
     {
         $session = $this->authenticate($config);
         $username = (string) $session['username'];
         $tokenName = (string) ($config['token_name'] ?? 'cloudportal');
-        $path = '/access/users/' . rawurlencode($username) . '/token/' . rawurlencode($tokenName);
+        $userPath = '/access/users/' . rawurlencode($username) . '/token';
+        $path = $userPath . '/' . rawurlencode($tokenName);
+
+        if ($this->tokenExists($config, $session, $userPath, $tokenName)) {
+            if (!$replaceExisting) {
+                throw new \RuntimeException(
+                    'Token API o nazwie „' . $tokenName . '” już istnieje dla użytkownika ' . $username . '.',
+                    409,
+                );
+            }
+
+            try {
+                $this->request($config, 'DELETE', $path, [], $session);
+            } catch (\RuntimeException $exception) {
+                throw new \RuntimeException(
+                    'Nie udało się usunąć istniejącego tokenu API „' . $username . '!' . $tokenName . '”. ' . $exception->getMessage(),
+                    0,
+                    $exception,
+                );
+            }
+        }
 
         try {
             $result = $this->request(
@@ -30,8 +50,13 @@ final class ProxmoxPasswordBootstrapper
                 $session,
             );
         } catch (\RuntimeException $exception) {
-            if (str_contains(mb_strtolower($exception->getMessage()), 'already exists')) {
-                throw new \RuntimeException('Token API o nazwie „' . $tokenName . '” już istnieje dla użytkownika ' . $username . '. Zmień nazwę tokenu w instalatorze albo usuń stary token w Proxmox.', 0, $exception);
+            $message = mb_strtolower($exception->getMessage());
+            if (str_contains($message, 'already exists') || str_contains($message, 'value already exists')) {
+                throw new \RuntimeException(
+                    'Token API o nazwie „' . $tokenName . '” już istnieje dla użytkownika ' . $username . '.',
+                    409,
+                    $exception,
+                );
             }
             throw new \RuntimeException('Nie udało się utworzyć tokenu API Proxmox. Konto musi mieć prawo utworzenia tokenu dla użytkownika ' . $username . '. ' . $exception->getMessage(), 0, $exception);
         }
@@ -62,6 +87,27 @@ final class ProxmoxPasswordBootstrapper
         } catch (\Throwable) {
             // Cleanup is best effort. Never hide the original installer error.
         }
+    }
+
+    /**
+     * @param array<string,mixed> $config
+     * @param array{ticket:string,csrf:string,username:string} $session
+     */
+    private function tokenExists(array $config, array $session, string $userPath, string $tokenName): bool
+    {
+        $tokens = $this->request($config, 'GET', $userPath, [], $session);
+        if (!is_array($tokens)) {
+            throw new \RuntimeException('Proxmox nie zwrócił listy tokenów użytkownika ' . $session['username'] . '.');
+        }
+
+        foreach ($tokens as $token) {
+            if (!is_array($token)) continue;
+            if (is_string($token['tokenid'] ?? null) && hash_equals((string) $token['tokenid'], $tokenName)) {
+                return true;
+            }
+        }
+
+        return false;
     }
 
     /** @param array<string,mixed> $config @return array{ticket:string,csrf:string,username:string} */
@@ -174,9 +220,21 @@ final class ProxmoxPasswordBootstrapper
 
         if ($status < 200 || $status >= 300) {
             $message = is_array($decoded) ? trim((string) ($decoded['message'] ?? '')) : '';
+            $fieldErrors = [];
+            if (is_array($decoded) && is_array($decoded['errors'] ?? null)) {
+                foreach ($decoded['errors'] as $field => $detail) {
+                    if (!is_scalar($detail)) continue;
+                    $fieldErrors[] = (string) $field . ': ' . trim((string) $detail);
+                }
+            }
+            $details = $fieldErrors !== [] ? implode('; ', $fieldErrors) : '';
             if ($status === 401) throw new \RuntimeException('Proxmox odrzucił login lub hasło (HTTP 401).');
             if ($status === 403) throw new \RuntimeException('Logowanie działa, ale konto nie ma wymaganych uprawnień w Proxmox (HTTP 403).');
-            throw new \RuntimeException('Proxmox API zwróciło HTTP ' . $status . ($message !== '' ? ': ' . mb_substr($message, 0, 300) : '.'));
+            throw new \RuntimeException(
+                'Proxmox API zwróciło HTTP ' . $status
+                . ($message !== '' ? ': ' . mb_substr($message, 0, 300) : '.')
+                . ($details !== '' ? ' Szczegóły: ' . mb_substr($details, 0, 500) : ''),
+            );
         }
 
         return is_array($decoded) ? ($decoded['data'] ?? null) : null;

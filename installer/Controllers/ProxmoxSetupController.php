@@ -46,6 +46,7 @@ final class ProxmoxSetupController
         $passwordConfig = null;
         try {
             if (filter_var($request->input('skip_proxmox', false), FILTER_VALIDATE_BOOL)) {
+                unset($_SESSION['installer_proxmox_replace_token']);
                 $this->state->put('proxmox', ['skipped' => true]);
                 $this->state->markCompleted(5);
                 return Response::redirect($this->app->url('/install?step=' . $this->state->nextStep()));
@@ -55,7 +56,13 @@ final class ProxmoxSetupController
             if ($mode === 'password') {
                 $passwordConfig = $this->passwordConfig($request->all());
                 $password = (string) $passwordConfig['password'];
-                $created = $this->passwordBootstrapper->createToken($passwordConfig);
+
+                $replacementKey = $this->tokenReplacementKey($passwordConfig);
+                $pendingReplacement = (string) ($_SESSION['installer_proxmox_replace_token'] ?? '');
+                $replaceExisting = $pendingReplacement !== '' && hash_equals($pendingReplacement, $replacementKey);
+                unset($_SESSION['installer_proxmox_replace_token']);
+
+                $created = $this->passwordBootstrapper->createToken($passwordConfig, $replaceExisting);
                 $tokenSecret = (string) $created['token_secret'];
                 $config = [
                     'skipped' => false,
@@ -71,6 +78,7 @@ final class ProxmoxSetupController
                 $test = $this->tester->test($config);
                 $this->storeTokenConfig($config, $test);
             } else {
+                unset($_SESSION['installer_proxmox_replace_token']);
                 $config = InstallerInput::proxmox($request->all());
                 $tokenSecret = (string) $config['token_secret'];
                 $test = $this->tester->test($config);
@@ -84,6 +92,22 @@ final class ProxmoxSetupController
             $_SESSION['installer_field_errors'] = $exception->fields;
             $_SESSION['installer_old'] = $this->safeOldInput($request->all());
         } catch (\Throwable $exception) {
+            $tokenConflict = $exception instanceof \RuntimeException
+                && $exception->getCode() === 409
+                && is_array($passwordConfig);
+
+            if ($tokenConflict) {
+                $replacementKey = $this->tokenReplacementKey($passwordConfig);
+                $_SESSION['installer_proxmox_replace_token'] = $replacementKey;
+                $exception = new \RuntimeException(
+                    'Token API „' . $replacementKey . '” już istnieje. Czy usunąć istniejący token i utworzyć nowy? '
+                    . 'Aby potwierdzić usunięcie i zastąpienie tokenu, wpisz ponownie hasło Proxmox, wybierz tryb „Login i hasło — utwórz token automatycznie” i kliknij „Kontynuuj”. '
+                    . 'Jeśli chcesz zachować istniejący token, zmień nazwę tworzonego tokenu przed ponownym kliknięciem „Kontynuuj”.',
+                    409,
+                    $exception,
+                );
+            }
+
             if (is_array($created) && is_array($passwordConfig)) {
                 $this->passwordBootstrapper->deleteTokenBestEffort(
                     $passwordConfig,
@@ -91,7 +115,9 @@ final class ProxmoxSetupController
                     (string) $created['token_name'],
                 );
             }
-            $this->logger->error('step_5', $exception, array_values(array_filter([$password, $tokenSecret])));
+            if (!$tokenConflict) {
+                $this->logger->error('step_5', $exception, array_values(array_filter([$password, $tokenSecret])));
+            }
             $_SESSION['installer_error'] = mb_substr($exception->getMessage(), 0, 800);
             $_SESSION['installer_old'] = $this->safeOldInput($request->all());
         } finally {
@@ -191,6 +217,15 @@ final class ProxmoxSetupController
             'token_name' => $tokenName,
             'verify_ssl' => $verifySsl,
         ];
+    }
+
+    /** @param array<string,mixed> $config */
+    private function tokenReplacementKey(array $config): string
+    {
+        $username = trim((string) ($config['username'] ?? ''));
+        $realm = trim((string) ($config['realm'] ?? 'pve'));
+        if (!str_contains($username, '@')) $username .= '@' . $realm;
+        return $username . '!' . (string) ($config['token_name'] ?? 'cloudportal');
     }
 
     /** @param array<string,mixed> $input @return array<string,mixed> */
