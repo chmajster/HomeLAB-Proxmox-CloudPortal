@@ -1,0 +1,57 @@
+.field-help {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 1.15rem;
+  height: 1.15rem;
+  margin-left: .35rem;
+  border: 1px solid currentColor;
+  border-radius: 50%;
+  color: var(--bs-secondary-color);
+  background: transparent;
+  font-size: .72rem;
+  font-weight: 700;
+  line-height: 1;
+  cursor: help;
+  vertical-align: .08rem;
+  outline: none;
+}
+
+.field-help::after {
+  content: attr(data-help);
+  position: absolute;
+  z-index: 1080;
+  left: 50%;
+  bottom: calc(100% + .55rem);
+  width: max-content;
+  max-width: min(22rem, 78vw);
+  padding: .55rem .7rem;
+  border: 1px solid var(--bs-border-color);
+  border-radius: .5rem;
+  background: var(--bs-body-bg);
+  color: var(--bs-body-color);
+  box-shadow: 0 .35rem 1rem rgba(0, 0, 0, .28);
+  font-size: .8rem;
+  font-weight: 400;
+  line-height: 1.35;
+  text-align: left;
+  white-space: normal;
+  opacity: 0;
+  visibility: hidden;
+  pointer-events: none;
+  transform: translate(-50%, .2rem);
+  transition: opacity .12s ease, transform .12s ease, visibility .12s ease;
+}
+
+.field-help:hover::after,
+.field-help:focus-visible::after {
+  opacity: 1;
+  visibility: visible;
+  transform: translate(-50%, 0);
+}
+
+.field-help:focus-visible {
+  box-shadow: 0 0 0 .2rem rgba(var(--bs-primary-rgb), .2);
+  color: var(--bs-primary);
+}
