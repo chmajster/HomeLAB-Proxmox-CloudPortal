@@ -4,7 +4,8 @@ $escapedBasePath = htmlspecialchars((string) $basePath, ENT_QUOTES, 'UTF-8');
 $icon = static fn (string $name, string $class = 'ui-icon'): string => '<svg class="' . htmlspecialchars($class, ENT_QUOTES, 'UTF-8') . '" aria-hidden="true"><use href="' . $escapedBasePath . '/assets/icons.svg#i-' . htmlspecialchars($name, ENT_QUOTES, 'UTF-8') . '"></use></svg>';
 $nav = [
   ['dashboard', 'Dashboard', 'dashboard'], ['vms', $english ? 'Virtual machines' : 'Maszyny wirtualne', 'server'], ['create-vm', $english ? 'Create VM' : 'Utwórz VM', 'plus-circle'],
-  ['projects', $english ? 'Projects' : 'Projekty', 'folder'], ['networks', $english ? 'Networks' : 'Sieci', 'network'], ['templates', $english ? 'Templates' : 'Template', 'template'], ['activity', $english ? 'Activity' : 'Aktywność', 'history'],
+  ['projects', $english ? 'Projects' : 'Projekty', 'folder'], ['networks', $english ? 'Networks' : 'Sieci', 'network'], ['templates', $english ? 'Templates' : 'Template', 'template'],
+  ['cloud-init', 'Cloud-Init Profiles', 'cloud'], ['ssh-keys', $english ? 'SSH keys' : 'Klucze SSH', 'key'], ['activity', $english ? 'Activity' : 'Aktywność', 'history'],
 ];
 $adminNav = [
   ['users', $english ? 'Users' : 'Użytkownicy', 'users'], ['infrastructure', $english ? 'Infrastructure' : 'Infrastruktura', 'infrastructure'], ['proxmox', 'Proxmox', 'proxmox'],
@@ -17,7 +18,11 @@ $adminNav = [
     <nav class="portal-nav" aria-label="Główna nawigacja">
       <p class="nav-section">Portal</p>
       <?php foreach ($nav as [$slug, $label, $iconName]): ?><a class="nav-link <?= $page === $slug ? 'active' : '' ?>" href="<?= $escapedBasePath ?>/<?= $slug ?>"><?= $icon($iconName, 'ui-icon nav-icon') ?><span><?= $label ?></span></a><?php endforeach; ?>
-      <?php if ($isAdmin): ?><p class="nav-section mt-4"><?= $english ? 'Administration' : 'Administracja' ?></p><?php foreach ($adminNav as [$slug, $label, $iconName]): ?><a class="nav-link <?= $page === $slug ? 'active' : '' ?>" href="<?= $escapedBasePath ?>/<?= $slug ?>"><?= $icon($iconName, 'ui-icon nav-icon') ?><span><?= $label ?></span></a><?php endforeach; endif; ?>
+      <?php if ($isAdmin): ?>
+        <p class="nav-section mt-4"><?= $english ? 'Administration' : 'Administracja' ?></p>
+        <?php foreach ($adminNav as [$slug, $label, $iconName]): ?><a class="nav-link <?= $page === $slug ? 'active' : '' ?>" href="<?= $escapedBasePath ?>/<?= $slug ?>"><?= $icon($iconName, 'ui-icon nav-icon') ?><span><?= $label ?></span></a><?php endforeach; ?>
+        <a class="nav-link" href="<?= $escapedBasePath ?>/api/docs"><?= $icon('template', 'ui-icon nav-icon') ?><span>OpenAPI / API Docs</span></a>
+      <?php endif; ?>
     </nav>
     <div class="sidebar-footer">
       <?php $initial = function_exists('mb_substr') ? mb_strtoupper(mb_substr((string) $user['username'], 0, 1)) : strtoupper(substr((string) $user['username'], 0, 1)); ?>
