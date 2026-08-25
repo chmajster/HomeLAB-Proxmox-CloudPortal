@@ -131,8 +131,17 @@ do {
     }
     try {
         if (($job['payload']['managed_provisioning'] ?? false) === true) {
-            $processor = $managedProcessor();
-            if (!$processor instanceof ManagedCreateProcessor) {
+            $processor = null;
+            $processorError = null;
+            try {
+                $processor = $managedProcessor();
+            } catch (Throwable $exception) {
+                $processorError = $exception;
+                error_log('Managed DNS configuration could not be initialized: ' . $exception->getMessage());
+            }
+            if ($processorError instanceof Throwable) {
+                $jobs->failPermanent((int) $job['id'], 'Managed DNS configuration is invalid or its secret cannot be decrypted. VM creation was not started.');
+            } elseif (!$processor instanceof ManagedCreateProcessor) {
                 $jobs->failPermanent((int) $job['id'], 'Managed provisioning requires an enabled and complete DNS configuration. VM creation was not started.');
             } else {
                 $processor->process($job);
