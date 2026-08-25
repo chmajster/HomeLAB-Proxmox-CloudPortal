@@ -34,6 +34,44 @@ final class InstallerDatabaseConnectionModeTest extends MariaDbTestCase
         self::assertSame(0, $this->databaseExists($database));
     }
 
+    public function testEmptyDatabaseNameConnectionTestChecksOnlyServer(): void
+    {
+        $config = InstallerInput::database([
+            'db_host' => $this->host(),
+            'db_port' => $this->port(),
+            'db_name' => '',
+            'db_user' => (string) (getenv('TEST_DB_USER') ?: ''),
+            'db_password' => (string) (getenv('TEST_DB_PASSWORD') ?: ''),
+            'create_database_if_missing' => '0',
+            'connection_test_only' => '1',
+        ]);
+
+        self::assertSame('', $config['name']);
+        self::assertTrue($config['create_if_missing']);
+
+        $result = (new DatabaseInstaller(dirname(__DIR__, 2) . '/database/schema.sql'))->test($config);
+
+        self::assertSame('server', $result['connection_scope']);
+        self::assertTrue($result['database_check_skipped']);
+        self::assertSame('', $result['database_name']);
+    }
+
+    public function testEmptyDatabaseNameDefaultsToCloudportalOnContinue(): void
+    {
+        $config = InstallerInput::database([
+            'db_host' => $this->host(),
+            'db_port' => $this->port(),
+            'db_name' => '',
+            'db_user' => (string) (getenv('TEST_DB_USER') ?: ''),
+            'db_password' => (string) (getenv('TEST_DB_PASSWORD') ?: ''),
+            'create_database_if_missing' => '0',
+        ]);
+
+        self::assertSame('cloudportal', $config['name']);
+        self::assertTrue($config['create_if_missing']);
+        self::assertFalse($config['connection_test_only']);
+    }
+
     public function testRejectedLoginReturnsActionableCredentialMessage(): void
     {
         $config = InstallerInput::database([
