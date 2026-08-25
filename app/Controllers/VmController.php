@@ -70,7 +70,8 @@ final class VmController
         $this->app->csrf->verify($request);
         $user = $this->app->auth()->requireUser();
         $this->app->auth()->requirePermission('vm.create');
-        $job = (new ProvisioningRequestService(new Database($this->app->config), $this->app->config))->createVm((int) $user['id'], $this->app->auth()->isAdmin(), $request->all());
+        $input = $this->withHostnamePrefix($request->all());
+        $job = (new ProvisioningRequestService(new Database($this->app->config), $this->app->config))->createVm((int) $user['id'], $this->app->auth()->isAdmin(), $input);
         $this->app->audit()->log((int) $user['id'], $request->ip(), 'vm.create.requested', 'success', 'job', $job);
         return Response::json(['data' => ['job_id' => $job]], 202);
     }
@@ -175,6 +176,34 @@ final class VmController
             'Content-Disposition' => 'attachment; filename="' . preg_replace('/[^A-Za-z0-9_-]/', '-', (string) $vm['name']) . '.vv"',
             'Cache-Control' => 'no-store',
         ]);
+    }
+
+    /** @param array<string,mixed> $input @return array<string,mixed> */
+    private function withHostnamePrefix(array $input): array
+    {
+        $name = trim((string) ($input['name'] ?? ''));
+        $prefix = $this->hostnamePrefix();
+        if ($name !== '' && $prefix !== '' && !str_starts_with(strtolower($name), $prefix)) {
+            $input['name'] = $prefix . $name;
+        }
+        return $input;
+    }
+
+    private function hostnamePrefix(): string
+    {
+        $statement = $this->app->pdo()->prepare("SELECT value FROM settings WHERE setting_key='hostname_generator.prefix' LIMIT 1");
+        $statement->execute();
+        $raw = $statement->fetchColumn();
+        if (!is_string($raw) || trim($raw) === '') return '';
+        try {
+            $value = json_decode($raw, true, 16, JSON_THROW_ON_ERROR);
+        } catch (\JsonException) {
+            return '';
+        }
+        if (!is_string($value)) return '';
+        $prefix = strtolower(trim($value));
+        $prefix = preg_replace('/[^a-z0-9-]+/', '-', $prefix) ?? '';
+        return substr(ltrim($prefix, '-'), 0, 32);
     }
 
     private function operations(): VmOperationService
