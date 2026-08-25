@@ -6,11 +6,14 @@ use CloudPortal\Application;
 use CloudPortal\Controllers\AdvancedVmController;
 use CloudPortal\Controllers\AdminController;
 use CloudPortal\Controllers\AdminResourceDetailsController;
+use CloudPortal\Controllers\AuditController;
 use CloudPortal\Controllers\AuthController;
 use CloudPortal\Controllers\CatalogController;
+use CloudPortal\Controllers\CloudInitController;
 use CloudPortal\Controllers\DashboardController;
 use CloudPortal\Controllers\DnsSettingsController;
 use CloudPortal\Controllers\JobController;
+use CloudPortal\Controllers\OpenApiController;
 use CloudPortal\Controllers\PlacementAdminController;
 use CloudPortal\Controllers\ProjectAdminController;
 use CloudPortal\Controllers\ProjectCreateController;
@@ -46,14 +49,28 @@ return static function (Router $router, Application $app): void {
     $webhooks = new WebhookAdminController($app);
     $placementAdmin = new PlacementAdminController($app);
     $dnsSettings = new DnsSettingsController($app);
+    $cloudInit = new CloudInitController($app);
+    $audit = new AuditController($app);
+    $openApi = new OpenApiController($app);
 
     $router->add('GET', '/healthz', [$system, 'health']);
     $router->add('GET', '/readyz', [$system, 'ready']);
+    $router->add('GET', '/api/openapi.json', [$openApi, 'spec']);
 
     $router->add('GET', '/api/v1/me', [$auth, 'me']);
     $router->add('POST', '/api/v1/logout', [$auth, 'logout']);
     $router->add('GET', '/api/v1/dashboard', [$dashboard, 'index']);
     $router->add('GET', '/api/v1/catalog', [$catalog, 'index']);
+
+    $router->add('GET', '/api/v1/ssh-keys', [$cloudInit, 'sshKeys']);
+    $router->add('POST', '/api/v1/ssh-keys', [$cloudInit, 'createSshKey']);
+    $router->add('DELETE', '/api/v1/ssh-keys/{id}', [$cloudInit, 'deleteSshKey']);
+    $router->add('GET', '/api/v1/cloud-init-profiles', [$cloudInit, 'profiles']);
+    $router->add('POST', '/api/v1/cloud-init-profiles', [$cloudInit, 'createProfile']);
+    $router->add('PATCH', '/api/v1/cloud-init-profiles/{id}', [$cloudInit, 'updateProfile']);
+    $router->add('DELETE', '/api/v1/cloud-init-profiles/{id}', [$cloudInit, 'deleteProfile']);
+    $router->add('GET', '/api/v1/cloud-init-profiles/{id}/vendor-data', [$cloudInit, 'vendorData']);
+
     $router->add('GET', '/api/v1/vms', [$vms, 'index']);
     $router->add('POST', '/api/v1/vms', [$vms, 'create']);
     $router->add('GET', '/api/v1/vms/{id}', [$vms, 'show']);
@@ -80,6 +97,8 @@ return static function (Router $router, Application $app): void {
     $router->add('GET', '/api/v1/jobs/{id}', [$jobs, 'show']);
     $router->add('GET', '/api/v1/{resource}', [$resources, 'index']);
 
+    $router->add('GET', '/api/v1/admin/audit/search', [$audit, 'search']);
+    $router->add('GET', '/api/v1/admin/audit/export', [$audit, 'export']);
     $router->add('GET', '/api/v1/admin/system/health', [$system, 'adminHealth']);
     $router->add('POST', '/api/v1/admin/jobs/{jobId}/retry', [$system, 'retryJob']);
     $router->add('GET', '/api/v1/admin/vms/{id}/assignment-options', [$vmAssignment, 'options']);
