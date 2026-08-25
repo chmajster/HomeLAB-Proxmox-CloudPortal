@@ -22,9 +22,13 @@ final class CloudInitAuditOpenApiTest extends TestCase
     public function testCloudInitRuntimeAppliesNativeSettingsAndValidatedSnippet(): void
     {
         $client = new class implements ProxmoxClientInterface {
+            /** @var array<string,mixed> */
+            public array $lastQuery = [];
+            public string $lastPath = '';
             public function get(string $path, array $query = []): mixed
             {
-                self::assertSame(['content' => 'snippets'], $query);
+                $this->lastPath = $path;
+                $this->lastQuery = $query;
                 return [['volid' => 'local:snippets/docker-host.yaml']];
             }
             public function post(string $path, array $data = []): mixed { return null; }
@@ -41,6 +45,8 @@ final class CloudInitAuditOpenApiTest extends TestCase
             'cicustom_vendor' => 'local:snippets/docker-host.yaml',
         ], ['cores' => 2]);
 
+        self::assertSame(['content' => 'snippets'], $client->lastQuery);
+        self::assertSame('/nodes/pve01/storage/local/content', $client->lastPath);
         self::assertSame('ubuntu', $config['ciuser']);
         self::assertSame('enabled=0', $config['agent']);
         self::assertSame('10.0.0.53 1.1.1.1', $config['nameserver']);
