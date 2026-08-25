@@ -33,7 +33,7 @@ final class DatabaseInstaller
             $pdo->exec("CREATE TEMPORARY TABLE {$probe} (id INT PRIMARY KEY) ENGINE=InnoDB");
             $pdo->exec("DROP TEMPORARY TABLE {$probe}");
         } catch (\Throwable) {
-            throw new \RuntimeException('Database user cannot create tables in the selected database.');
+            throw new \RuntimeException('Użytkownik bazy danych nie ma uprawnienia do tworzenia tabel w wybranej bazie.');
         }
         $tables = $this->tables($pdo);
         $portalTables = array_values(array_intersect(self::REQUIRED_TABLES, $tables));
@@ -48,7 +48,7 @@ final class DatabaseInstaller
             'existing_tables' => $tables !== [],
             'compatible_portal_schema' => $this->hasSchemaMarker($pdo),
             'database_created' => $databaseCreated,
-            'warning' => $tables === [] ? null : 'The database is not empty. Existing tables will never be deleted or overwritten.',
+            'warning' => $tables === [] ? null : 'Baza nie jest pusta. Instalator nie usunie ani nie nadpisze istniejących tabel.',
         ];
     }
 
@@ -61,16 +61,16 @@ final class DatabaseInstaller
         $lockName = 'cloud_portal_install_' . substr(hash('sha256', $database), 0, 32);
         $lock = $pdo->prepare('SELECT GET_LOCK(:name, 10)');
         $lock->execute(['name' => $lockName]);
-        if ((int) $lock->fetchColumn() !== 1) throw new \RuntimeException('Another installer session is initializing this database.');
+        if ((int) $lock->fetchColumn() !== 1) throw new \RuntimeException('Inna sesja instalatora inicjalizuje obecnie tę bazę danych.');
         try {
             $schema = file_get_contents($this->schemaPath);
-            if (!is_string($schema) || trim($schema) === '') throw new \RuntimeException('The database schema file cannot be read.');
+            if (!is_string($schema) || trim($schema) === '') throw new \RuntimeException('Nie można odczytać pliku schematu bazy danych.');
             $pdo->exec($schema);
             (new MigrationService($pdo, dirname($this->schemaPath) . '/migrations'))->apply();
             $this->verify($pdo);
             return ['version' => self::SCHEMA_VERSION, 'tables' => count($this->tables($pdo))];
         } catch (\Throwable $exception) {
-            throw new \RuntimeException('Database schema initialization failed: ' . $this->safeDatabaseMessage($exception), 0, $exception);
+            throw new \RuntimeException('Inicjalizacja schematu bazy danych nie powiodła się: ' . $this->safeDatabaseMessage($exception), 0, $exception);
         } finally {
             $release = $pdo->prepare('SELECT RELEASE_LOCK(:name)');
             $release->execute(['name' => $lockName]);
@@ -80,23 +80,22 @@ final class DatabaseInstaller
     public function verify(PDO $pdo): void
     {
         $missing = array_diff(self::REQUIRED_TABLES, $this->tables($pdo));
-        if ($missing !== []) throw new \RuntimeException('Database schema is incomplete. Missing tables: ' . implode(', ', $missing));
+        if ($missing !== []) throw new \RuntimeException('Schemat bazy danych jest niekompletny. Brakujące tabele: ' . implode(', ', $missing));
         $version = $pdo->prepare('SELECT 1 FROM schema_migrations WHERE version = :version');
         $version->execute(['version' => self::SCHEMA_VERSION]);
-        if (!$version->fetchColumn()) throw new \RuntimeException('Database schema version is not registered.');
-        if ((int) $pdo->query("SELECT COUNT(*) FROM roles WHERE slug IN ('admin','user')")->fetchColumn() !== 2) throw new \RuntimeException('Initial roles are incomplete.');
-        if ((int) $pdo->query('SELECT COUNT(*) FROM permissions')->fetchColumn() < 12) throw new \RuntimeException('Initial permissions are incomplete.');
+        if (!$version->fetchColumn()) throw new \RuntimeException('Wersja schematu bazy danych nie została zarejestrowana.');
+        if ((int) $pdo->query("SELECT COUNT(*) FROM roles WHERE slug IN ('admin','user')")->fetchColumn() !== 2) throw new \RuntimeException('Początkowe role są niekompletne.');
+        if ((int) $pdo->query('SELECT COUNT(*) FROM permissions')->fetchColumn() < 12) throw new \RuntimeException('Początkowe uprawnienia są niekompletne.');
     }
 
     /** @param array<string,mixed> $config */
     public function connect(array $config): PDO
     {
-        $this->ensureDatabaseExists($config);
         return $this->connectDatabase($config);
     }
 
     /**
-     * Creates the configured database only when it is missing.
+     * Creates the configured database only when it is missing and the installer option allows it.
      *
      * @param array<string,mixed> $config
      * @return bool true when the database was created by this call
@@ -111,11 +110,16 @@ final class DatabaseInstaller
         $exists->execute(['database' => $database]);
         if ($exists->fetchColumn()) return false;
 
+        $createIfMissing = !array_key_exists('create_if_missing', $config) || (bool) $config['create_if_missing'];
+        if (!$createIfMissing) {
+            throw new \RuntimeException('Wskazana baza danych nie istnieje. Zaznacz „Utwórz bazę danych, jeśli nie istnieje” albo utwórz bazę ręcznie.');
+        }
+
         try {
             $pdo->exec("CREATE DATABASE IF NOT EXISTS {$identifier} CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci");
         } catch (\Throwable $exception) {
             throw new \RuntimeException(
-                'Database does not exist and the configured user cannot create it. Grant CREATE DATABASE permission or create the database manually.',
+                'Baza danych nie istnieje, a podany użytkownik nie może jej utworzyć. Nadaj mu uprawnienie CREATE DATABASE albo utwórz bazę ręcznie.',
                 0,
                 $exception,
             );
@@ -123,7 +127,7 @@ final class DatabaseInstaller
 
         $exists->execute(['database' => $database]);
         if (!$exists->fetchColumn()) {
-            throw new \RuntimeException('Database creation did not complete successfully.');
+            throw new \RuntimeException('Automatyczne utworzenie bazy danych nie zostało zakończone poprawnie.');
         }
 
         return true;
@@ -172,7 +176,7 @@ final class DatabaseInstaller
     private function databaseIdentifier(string $database): string
     {
         if (preg_match('/^[A-Za-z0-9_$-]{1,64}$/', $database) !== 1) {
-            throw new \RuntimeException('Database name is invalid.');
+            throw new \RuntimeException('Nazwa bazy danych jest nieprawidłowa.');
         }
         return '`' . $database . '`';
     }
