@@ -38,19 +38,21 @@ $adminNav = [
     <div class="portal-content">
       <?php if (is_array($firstRun)): ?>
         <section class="first-run-checklist" id="firstRunChecklist" aria-labelledby="firstRunTitle">
-          <div><p class="eyebrow mb-0"><?= $english ? 'First run' : 'Pierwsze uruchomienie' ?></p><h2 class="h5 mb-1" id="firstRunTitle"><?= $english ? 'Finish configuring the portal' : 'Dokończ konfigurację portalu' ?></h2><p class="text-secondary small mb-0"><?= $english ? 'Optional items do not block the portal.' : 'Elementy opcjonalne nie blokują działania panelu.' ?></p></div>
-          <button class="btn-close" type="button" data-dismiss-checklist aria-label="<?= $english ? 'Hide checklist' : 'Ukryj checklistę' ?>"></button>
+          <div>
+            <p class="eyebrow mb-0"><?= $english ? 'VM provisioning' : 'Provisioning VM' ?></p>
+            <h2 class="h5 mb-1" id="firstRunTitle"><?= $english ? 'Prepare resources for VM provisioning' : 'Przygotuj zasoby do tworzenia VM' ?></h2>
+            <p class="text-secondary small mb-0"><?= $english ? 'The portal itself is configured. These resources are only required before the first automated VM can be created.' : 'Portal jest skonfigurowany. Poniższe zasoby są potrzebne dopiero przed pierwszym automatycznym utworzeniem VM.' ?></p>
+          </div>
+          <button class="btn-close" type="button" data-dismiss-checklist aria-label="<?= $english ? 'Hide readiness checklist' : 'Ukryj listę gotowości' ?>"></button>
           <ul>
             <?php foreach ([
-              'portal' => $english ? 'Portal installed' : 'Portal zainstalowany',
-              'administrator' => $english ? 'Administrator created' : 'Administrator utworzony',
-              'database' => $english ? 'Database configured' : 'Baza skonfigurowana',
-              'security' => $english ? 'Security keys generated' : 'Klucze bezpieczeństwa wygenerowane',
-              'proxmox' => $english ? 'Proxmox configured' : 'Proxmox skonfigurowany',
-              'networks' => $english ? 'Networks configured' : 'Sieci skonfigurowane',
-              'templates' => $english ? 'Templates configured' : 'Template skonfigurowane',
-              'plans' => $english ? 'Resource plans configured' : 'Plany zasobów skonfigurowane',
-            ] as $key => $label): ?><li class="<?= $firstRun[$key] ? 'complete' : '' ?>"><?= $icon($firstRun[$key] ? 'check' : 'circle') ?><?= htmlspecialchars($label, ENT_QUOTES, 'UTF-8') ?></li><?php endforeach; ?>
+              'proxmox' => $english ? 'Proxmox connection' : 'Połączenie Proxmox',
+              'projects' => $english ? 'At least one project' : 'Co najmniej jeden projekt',
+              'networks' => $english ? 'At least one network' : 'Co najmniej jedna sieć',
+              'storages' => $english ? 'At least one storage' : 'Co najmniej jeden storage',
+              'templates' => $english ? 'At least one VM template' : 'Co najmniej jeden template VM',
+              'plans' => $english ? 'At least one resource plan' : 'Co najmniej jeden plan zasobów',
+            ] as $key => $label): ?><li class="<?= !empty($firstRun[$key]) ? 'complete' : '' ?>"><?= $icon(!empty($firstRun[$key]) ? 'check' : 'circle') ?><?= htmlspecialchars($label, ENT_QUOTES, 'UTF-8') ?></li><?php endforeach; ?>
           </ul>
         </section>
       <?php endif; ?>

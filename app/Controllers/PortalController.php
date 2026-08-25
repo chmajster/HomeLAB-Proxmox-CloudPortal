@@ -33,7 +33,7 @@ final class PortalController
             'page' => $page,
             'csrf' => $this->app->csrf->token(),
             'appName' => $this->app->setting('portal.name', $this->app->config->get('app.name')),
-            'firstRun' => $this->firstRunChecklist(),
+            'firstRun' => $this->provisioningReadinessChecklist(),
             'managedProvisioning' => $this->managedProvisioningConfigured(),
             'hostnamePattern' => (string) $this->app->config->get('hostname_generator.pattern', 'vm-{project}-{counter}'),
         ]));
@@ -45,21 +45,34 @@ final class PortalController
         return Response::redirect($this->app->url('/dashboard'));
     }
 
-    /** @return array<string,bool>|null */
-    private function firstRunChecklist(): ?array
+    /**
+     * The installer lock already proves that the mandatory portal setup
+     * (database, administrator and security material) finished successfully.
+     * This checklist therefore tracks only resources needed to provision VMs.
+     * Missing catalog resources must never make the portal look unfinished.
+     *
+     * @return array<string,bool>|null
+     */
+    private function provisioningReadinessChecklist(): ?array
     {
         if (!$this->app->auth()->isAdmin()) return null;
+
         $pdo = $this->app->pdo();
-        $counts = [];
-        foreach (['proxmox_connections', 'networks', 'vm_templates', 'resource_plans'] as $table) {
-            $counts[$table] = (int) $pdo->query("SELECT COUNT(*) FROM {$table}")->fetchColumn();
-        }
-        if (min($counts) > 0) return null;
-        return [
-            'portal' => true, 'administrator' => true, 'database' => true, 'security' => true,
-            'proxmox' => $counts['proxmox_connections'] > 0, 'networks' => $counts['networks'] > 0,
-            'templates' => $counts['vm_templates'] > 0, 'plans' => $counts['resource_plans'] > 0,
+        $tables = [
+            'proxmox' => 'proxmox_connections',
+            'projects' => 'projects',
+            'networks' => 'networks',
+            'storages' => 'storages',
+            'templates' => 'vm_templates',
+            'plans' => 'resource_plans',
         ];
+        $ready = [];
+        foreach ($tables as $key => $table) {
+            $ready[$key] = (int) $pdo->query("SELECT COUNT(*) FROM {$table}")->fetchColumn() > 0;
+        }
+
+        if (!in_array(false, $ready, true)) return null;
+        return $ready;
     }
 
     private function managedProvisioningConfigured(): bool
