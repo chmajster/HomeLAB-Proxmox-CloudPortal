@@ -9,6 +9,7 @@ use CloudPortal\Controllers\AdminResourceDetailsController;
 use CloudPortal\Controllers\AuthController;
 use CloudPortal\Controllers\CatalogController;
 use CloudPortal\Controllers\DashboardController;
+use CloudPortal\Controllers\DnsSettingsController;
 use CloudPortal\Controllers\JobController;
 use CloudPortal\Controllers\PlacementAdminController;
 use CloudPortal\Controllers\ProjectAdminController;
@@ -44,6 +45,7 @@ return static function (Router $router, Application $app): void {
     $system = new SystemController($app);
     $webhooks = new WebhookAdminController($app);
     $placementAdmin = new PlacementAdminController($app);
+    $dnsSettings = new DnsSettingsController($app);
 
     $router->add('GET', '/healthz', [$system, 'health']);
     $router->add('GET', '/readyz', [$system, 'ready']);
@@ -90,6 +92,9 @@ return static function (Router $router, Application $app): void {
     $router->add('DELETE', '/api/v1/admin/webhooks/{id}', [$webhooks, 'delete']);
     $router->add('GET', '/api/v1/admin/webhooks/{id}/deliveries', [$webhooks, 'deliveries']);
 
+    $router->add('GET', '/api/v1/admin/settings/dns', [$dnsSettings, 'show']);
+    $router->add('PUT', '/api/v1/admin/settings/dns', [$dnsSettings, 'update']);
+    $router->add('POST', '/api/v1/admin/settings/dns/test', [$dnsSettings, 'test']);
     $router->add('GET', '/api/v1/admin/quota-template-limits', [$quotaAdmin, 'templateLimits']);
     $router->add('POST', '/api/v1/admin/quotas', [$quotaAdmin, 'upsert']);
     $router->add('POST', '/api/v1/admin/quota-template-limits', [$quotaAdmin, 'upsertTemplateLimit']);
