@@ -6,6 +6,8 @@ namespace CloudPortal\Services\Provisioning;
 
 use CloudPortal\Database\Database;
 use CloudPortal\Http\HttpException;
+use CloudPortal\Services\CloudInit\CloudInitProfileService;
+use CloudPortal\Services\CloudInit\SshKeyService;
 use CloudPortal\Services\DNS\DnsSettingsService;
 use CloudPortal\Services\IPAM\IPAMService;
 use CloudPortal\Services\Placement\PlacementService;
@@ -66,6 +68,39 @@ final class ProvisioningRequestService
             $catalog = $this->catalog($pdo, $projectId, $input);
             $sourceNode = (string) $catalog['source_node'];
             $targetNode = $this->selectTargetNode($pdo, $catalog);
+
+            $profileService = new CloudInitProfileService($pdo);
+            $profileId = filter_var($input['cloud_init_profile_id'] ?? 0, FILTER_VALIDATE_INT, ['options' => ['min_range' => 1]]);
+            $profile = $profileId === false ? null : $profileService->resolveForOwner((int) $profileId, $ownerId);
+            $cloudUser = trim((string) ($profile['system_user'] ?? $input['cloud_init_user'] ?? 'clouduser'));
+            if (preg_match('/^[a-z_][a-z0-9_-]{0,31}$/', $cloudUser) !== 1) {
+                throw new HttpException(422, 'Invalid cloud-init username.');
+            }
+
+            $keyService = new SshKeyService($pdo);
+            $selectedKeyIds = SshKeyService::ids($input['ssh_key_ids'] ?? []);
+            if (is_array($profile) && !empty($profile['ssh_key_ids'])) {
+                $selectedKeyIds = array_values(array_unique([...$selectedKeyIds, ...array_map('intval', $profile['ssh_key_ids'])]));
+            }
+            $resolvedKeys = $keyService->resolve($ownerId, $selectedKeyIds);
+            $publicKeys = array_map(static fn (array $key): string => (string) $key['public_key'], $resolvedKeys);
+            $oneOffKey = trim((string) ($input['ssh_public_key'] ?? ''));
+            if ($oneOffKey !== '') {
+                $publicKeys[] = SshKeyService::parsePublicKey($oneOffKey)['public_key'];
+            }
+            $publicKeys = array_values(array_unique($publicKeys));
+            $sshKeyPayload = implode("\n", $publicKeys);
+
+            $dnsServers = trim((string) ($profile['dns_servers'] ?? '')) !== '' ? (string) $profile['dns_servers'] : (string) $catalog['dns_servers'];
+            $searchDomain = trim((string) ($profile['search_domain'] ?? ''));
+            $qemuGuestAgent = is_array($profile) ? (bool) $profile['qemu_guest_agent'] : true;
+            $snippetVolume = null;
+            $vendorSha256 = null;
+            if (is_array($profile) && $profileService->needsSnippet($profile)) {
+                $snippetVolume = (string) $profile['snippet_volume'];
+                $vendorSha256 = hash('sha256', $profileService->vendorData($profile));
+            }
+
             $reservationKey = Uuid::v4();
             $quota = new QuotaService($pdo);
             $quota->cleanupExpired();
@@ -81,14 +116,7 @@ final class ProvisioningRequestService
                 throw new HttpException(409, $exception->getMessage(), ['resource' => $exception->resource]);
             }
             $ip = (new IPAMService($pdo))->reserve((int) $catalog['network_id'], $reservationKey);
-            $cloudUser = trim((string) ($input['cloud_init_user'] ?? 'clouduser'));
-            if (preg_match('/^[a-z_][a-z0-9_-]{0,31}$/', $cloudUser) !== 1) {
-                throw new HttpException(422, 'Invalid cloud-init username.');
-            }
-            $sshKey = trim((string) ($input['ssh_public_key'] ?? ''));
-            if ($sshKey !== '' && preg_match('/^(ssh-(rsa|ed25519)|ecdsa-sha2-nistp(256|384|521)) [A-Za-z0-9+\/=]+(?: .*)?$/', $sshKey) !== 1) {
-                throw new HttpException(422, 'Invalid SSH public key.');
-            }
+
             $payload = [
                 'name' => $name,
                 'owner_user_id' => $ownerId,
@@ -108,11 +136,19 @@ final class ProvisioningRequestService
                 'ip_address' => (string) $ip['address'],
                 'ip_cidr' => (string) $ip['address'] . '/' . $this->prefixFromSubnet((string) $catalog['subnet']),
                 'gateway' => $catalog['gateway'],
-                'dns_servers' => $catalog['dns_servers'],
+                'dns_servers' => $dnsServers,
+                'search_domain' => $searchDomain,
                 'storage_id' => (int) $catalog['storage_id'],
                 'storage_name' => (string) $catalog['storage_name'],
+                'cloud_init_profile_id' => is_array($profile) ? (int) $profile['id'] : null,
+                'cloud_init_profile_name' => is_array($profile) ? (string) $profile['name'] : null,
                 'cloud_init_user' => $cloudUser,
-                'ssh_public_key' => $sshKey,
+                'ssh_key_ids' => $selectedKeyIds,
+                'ssh_public_key' => $sshKeyPayload,
+                'ssh_public_keys' => $publicKeys,
+                'qemu_guest_agent' => $qemuGuestAgent,
+                'cicustom_vendor' => $snippetVolume,
+                'cloud_init_vendor_sha256' => $vendorSha256,
                 'managed_provisioning' => $managed,
                 'start_after_create' => $managed ? false : (!isset($input['start_after_create']) || filter_var($input['start_after_create'], FILTER_VALIDATE_BOOL)),
             ];
@@ -128,9 +164,6 @@ final class ProvisioningRequestService
     /** @param array<string,mixed> $input */
     private function managedRequested(DnsSettingsService $dnsSettings, array $input): bool
     {
-        // When DNS integration is enabled in the panel, every new VM uses the
-        // managed flow. This guarantees DNS is created before the template is
-        // cloned instead of allowing a stale/forged form value to bypass it.
         if ($dnsSettings->configured()) {
             return true;
         }
