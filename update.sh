@@ -49,7 +49,13 @@ mkdir -p "$ROOT/storage/logs" "$BACKUP_BASE" "$ROOT/storage/cache"
 
 timestamp() { date -u '+%Y-%m-%dT%H:%M:%SZ'; }
 log() { printf '[%s] %s\n' "$(timestamp)" "$*" | tee -a "$LOG_FILE" >&2; }
-die() { log "ERROR: $*"; exit 1; }
+die() {
+  log "ERROR: $*"
+  if [[ "$IN_MAINTENANCE" == "1" && "$ERROR_HANDLING" != "1" ]]; then
+    on_error 1
+  fi
+  exit 1
+}
 
 require_cmd() {
   command -v "$1" >/dev/null 2>&1 || die "Required command not found: $1"
@@ -118,8 +124,12 @@ assert_queue_empty() {
 }
 
 prepare_mysql() {
-  TEMP_DIR="$(mktemp -d "$ROOT/storage/cache/cloudportal-update.XXXXXX")"
-  MYSQL_CNF="$TEMP_DIR/mysql.cnf"
+  if [[ -z "$TEMP_DIR" ]]; then
+    TEMP_DIR="$(mktemp -d "$ROOT/storage/cache/cloudportal-update.XXXXXX")"
+  fi
+  mkdir -p "$TEMP_DIR/secrets"
+  MYSQL_CNF="$TEMP_DIR/secrets/mysql.cnf"
+  rm -f -- "$MYSQL_CNF"
   php "$ROOT/bin/update-helper.php" mysql-config "$MYSQL_CNF"
   DB_NAME="$(php "$ROOT/bin/update-helper.php" database-name | tr -d '\r\n')"
   [[ "$DB_NAME" =~ ^[A-Za-z0-9_\$-]{1,64}$ ]] || die "Updater received an unsafe database name."
@@ -157,7 +167,9 @@ on_error() {
   trap - ERR INT TERM
   set +e
   log "Update operation failed with exit code $status."
-  if [[ "$BACKUP_READY" == "1" && -n "$BACKUP_DIR" ]]; then
+  if [[ "$MODE" == "rollback" && "$IN_MAINTENANCE" == "1" ]]; then
+    log "CRITICAL: manual rollback did not complete. Maintenance mode remains enabled; correct the error and retry the rollback. Backup: $BACKUP_DIR"
+  elif [[ "$BACKUP_READY" == "1" && -n "$BACKUP_DIR" ]]; then
     log "Automatic rollback started."
     if restore_backup "$BACKUP_DIR"; then
       log "Automatic rollback completed."
