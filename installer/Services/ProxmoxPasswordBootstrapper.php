@@ -16,6 +16,10 @@ final class ProxmoxPasswordBootstrapper
     /** @param array<string,mixed> $config @return array{token_id:string,token_secret:string,token_name:string,username:string} */
     public function createToken(array $config, bool $replaceExisting = false): array
     {
+        // Password bootstrap owns the configured token name. If it already exists,
+        // replace it in the same request instead of requiring a second confirmation.
+        $replaceExisting = true;
+
         $session = $this->authenticate($config);
         $username = (string) $session['username'];
         $tokenName = (string) ($config['token_name'] ?? 'cloudportal');
