@@ -18,6 +18,9 @@ final class InstallerInput
         $createIfMissing = !array_key_exists('create_database_if_missing', $input)
             || filter_var($input['create_database_if_missing'], FILTER_VALIDATE_BOOL);
 
+        // Empty database name has two intentional meanings:
+        // - during "Test connection": test only the MariaDB/MySQL server and credentials;
+        // - during "Continue": use the default database name "cloudportal" and ensure it exists.
         if ($name === '') {
             if ($connectionTestOnly) {
                 $createIfMissing = true;
