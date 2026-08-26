@@ -193,19 +193,16 @@ final class MfaService
 
     private function base32Encode(string $binary): string
     {
-        $buffer = 0;
-        $bitsLeft = 0;
-        $output = '';
+        $bits = '';
         foreach (unpack('C*', $binary) ?: [] as $byte) {
-            $buffer = ($buffer << 8) | $byte;
-            $bitsLeft += 8;
-            while ($bitsLeft >= 5) {
-                $bitsLeft -= 5;
-                $output .= self::BASE32_ALPHABET[($buffer >> $bitsLeft) & 31];
-            }
+            $bits .= str_pad(decbin($byte), 8, '0', STR_PAD_LEFT);
         }
-        if ($bitsLeft > 0) {
-            $output .= self::BASE32_ALPHABET[($buffer << (5 - $bitsLeft)) & 31];
+        $output = '';
+        foreach (str_split($bits, 5) as $chunk) {
+            if (strlen($chunk) < 5) {
+                $chunk = str_pad($chunk, 5, '0', STR_PAD_RIGHT);
+            }
+            $output .= self::BASE32_ALPHABET[bindec($chunk)];
         }
         return $output;
     }
@@ -216,20 +213,20 @@ final class MfaService
         if ($encoded === '') {
             throw new \RuntimeException('MFA secret is invalid.');
         }
-        $buffer = 0;
-        $bitsLeft = 0;
-        $output = '';
+        $bits = '';
         foreach (str_split($encoded) as $char) {
             $value = strpos(self::BASE32_ALPHABET, $char);
             if ($value === false) {
                 throw new \RuntimeException('MFA secret is invalid.');
             }
-            $buffer = ($buffer << 5) | $value;
-            $bitsLeft += 5;
-            if ($bitsLeft >= 8) {
-                $bitsLeft -= 8;
-                $output .= chr(($buffer >> $bitsLeft) & 0xff);
+            $bits .= str_pad(decbin($value), 5, '0', STR_PAD_LEFT);
+        }
+        $output = '';
+        foreach (str_split($bits, 8) as $chunk) {
+            if (strlen($chunk) < 8) {
+                break;
             }
+            $output .= chr(bindec($chunk));
         }
         return $output;
     }
