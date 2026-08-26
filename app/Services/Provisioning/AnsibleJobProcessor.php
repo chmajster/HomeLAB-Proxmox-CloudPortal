@@ -40,6 +40,12 @@ final class AnsibleJobProcessor
                     ->execute(['error' => mb_substr($exception->getMessage(), 0, 1000), 'id' => $vmId]);
             }
             $this->jobs->fail((int) $job['id'], $exception->getMessage());
+            $final = $this->jobs->find((string) ($job['public_id'] ?? ''));
+            $payload = is_array($job['payload'] ?? null) ? $job['payload'] : [];
+            $blueprintId = (int) ($payload['blueprint_id'] ?? 0);
+            if ($type === 'vm.ansible' && $vmId > 0 && $blueprintId > 0 && is_array($final) && (string) ($final['status'] ?? '') === 'dead_letter') {
+                $this->failBlueprintProvisioning($vmId, $exception->getMessage());
+            }
             $this->audit->log(
                 $job['user_id'] === null ? null : (int) $job['user_id'],
                 '127.0.0.1',
@@ -63,6 +69,7 @@ final class AnsibleJobProcessor
         $playbook = trim((string) ($payload['playbook'] ?? ''));
         $user = trim((string) ($payload['cloud_init_user'] ?? 'clouduser'));
         $extraVars = is_array($payload['extra_vars'] ?? null) ? $payload['extra_vars'] : [];
+        $blueprintId = (int) ($payload['blueprint_id'] ?? 0);
         if ($playbook === '') throw new \RuntimeException('Ansible job does not contain a playbook.');
 
         $statement = $this->database->pdo()->prepare(
@@ -78,9 +85,14 @@ final class AnsibleJobProcessor
         if ($ip === '') throw new \RuntimeException('Virtual machine does not have an allocated IP address.');
 
         $result = $this->ansible->run($playbook, $ip, $user, $extraVars);
-        $this->database->pdo()->prepare('UPDATE virtual_machines SET last_error=NULL WHERE id=:id')->execute(['id' => $vmId]);
+        $this->database->pdo()->prepare("UPDATE virtual_machines SET status='running',last_error=NULL WHERE id=:id")->execute(['id' => $vmId]);
+        if ($blueprintId > 0) {
+            $this->completeBlueprintProvisioning($vmId, $playbook);
+        }
         $this->jobs->complete((int) $job['id'], [
             'virtual_machine_id' => $vmId,
+            'blueprint_id' => $blueprintId > 0 ? $blueprintId : null,
+            'provisioning_status' => $blueprintId > 0 ? 'READY' : null,
             'playbook' => $result['playbook'],
             'host' => $result['host'],
             'exit_code' => $result['exit_code'],
@@ -93,7 +105,7 @@ final class AnsibleJobProcessor
             'success',
             'virtual_machine',
             (string) $vmId,
-            ['playbook' => $playbook, 'ip_address' => $ip],
+            ['playbook' => $playbook, 'ip_address' => $ip, 'blueprint_id' => $blueprintId ?: null],
         );
     }
 
@@ -154,5 +166,39 @@ final class AnsibleJobProcessor
             (string) $inventoryId,
             ['playbook' => $playbook, 'hosts' => $result['hosts'], 'limit_vm_id' => $limitVmId > 0 ? $limitVmId : null],
         );
+    }
+
+    private function completeBlueprintProvisioning(int $vmId, string $playbook): void
+    {
+        $jobId = $this->blueprintProvisioningJobId($vmId);
+        if ($jobId <= 0) return;
+        $state = new ProvisioningStateRepository($this->database->pdo());
+        $state->transition($jobId, 'CONFIGURING', 14, 'Ansible playbook');
+        $state->step($jobId, 14, 'Ansible playbook', $playbook . ' completed successfully');
+        $state->ready($jobId, 14, 'READY');
+    }
+
+    private function failBlueprintProvisioning(int $vmId, string $message): void
+    {
+        $this->database->pdo()->prepare("UPDATE virtual_machines SET status='error',last_error=:error WHERE id=:id")
+            ->execute(['error' => mb_substr($message, 0, 1000), 'id' => $vmId]);
+        $jobId = $this->blueprintProvisioningJobId($vmId);
+        if ($jobId <= 0) return;
+        try {
+            (new ProvisioningStateRepository($this->database->pdo()))->error($jobId, 'Ansible failed after all retry attempts: ' . $message);
+        } catch (Throwable) {
+        }
+    }
+
+    private function blueprintProvisioningJobId(int $vmId): int
+    {
+        $statement = $this->database->pdo()->prepare(
+            "SELECT vp.job_id FROM vm_provisioning vp
+             JOIN virtual_machines vm ON vm.id=vp.virtual_machine_id
+             WHERE vp.virtual_machine_id=:vm AND vm.blueprint_id IS NOT NULL
+             ORDER BY vp.id DESC LIMIT 1"
+        );
+        $statement->execute(['vm' => $vmId]);
+        return (int) $statement->fetchColumn();
     }
 }
