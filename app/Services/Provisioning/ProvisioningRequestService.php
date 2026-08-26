@@ -88,6 +88,23 @@ final class ProvisioningRequestService
             if ($oneOffKey !== '') {
                 $publicKeys[] = SshKeyService::parsePublicKey($oneOffKey)['public_key'];
             }
+
+            $ansiblePlaybook = trim((string) ($input['ansible_playbook'] ?? ''));
+            if ($ansiblePlaybook !== '') {
+                if (!$this->config instanceof Config) {
+                    throw new HttpException(422, 'Ansible provisioning is not configured.');
+                }
+                try {
+                    $ansible = AnsiblePlaybookService::fromConfig($this->config, dirname(__DIR__, 3));
+                    $ansiblePlaybook = (string) $ansible->validateSelection($ansiblePlaybook);
+                    $publicKeys[] = SshKeyService::parsePublicKey($ansible->controllerPublicKey())['public_key'];
+                } catch (\InvalidArgumentException | \RuntimeException $exception) {
+                    throw new HttpException(422, $exception->getMessage());
+                }
+            } else {
+                $ansiblePlaybook = null;
+            }
+
             $publicKeys = array_values(array_unique($publicKeys));
             $sshKeyPayload = implode("\n", $publicKeys);
 
@@ -150,7 +167,8 @@ final class ProvisioningRequestService
                 'cicustom_vendor' => $snippetVolume,
                 'cloud_init_vendor_sha256' => $vendorSha256,
                 'managed_provisioning' => $managed,
-                'start_after_create' => $managed ? false : (!isset($input['start_after_create']) || filter_var($input['start_after_create'], FILTER_VALIDATE_BOOL)),
+                'ansible_playbook' => $ansiblePlaybook,
+                'start_after_create' => $managed ? false : ($ansiblePlaybook !== null || !isset($input['start_after_create']) || filter_var($input['start_after_create'], FILTER_VALIDATE_BOOL)),
             ];
             $type = $targetNode === $sourceNode ? 'vm.create' : 'vm.create.placed';
             $jobId = (new JobRepository($pdo))->enqueue($type, $userId, $projectId, (int) $catalog['connection_id'], $payload, $reservationKey, null, $type === 'vm.create.placed' ? 4 : 1);
