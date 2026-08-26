@@ -38,7 +38,15 @@ final class PrometheusMetricsService
         foreach ($this->countBy('ip_addresses', 'state') as $state => $count) {
             $this->sample($lines, 'algen_cloudportal_ipam_addresses', ['state' => $state], $count, 'gauge', 'IPAM addresses by state.');
         }
+        foreach ($this->countBySafe('reconciliation_incidents', 'severity', "status='open'") as $severity => $count) {
+            $this->sample($lines, 'algen_cloudportal_reconciliation_incidents', ['severity' => $severity], $count, 'gauge', 'Open reconciliation incidents by severity.');
+        }
+        foreach ($this->countBySafe('api_tokens', 'status') as $status => $count) {
+            $this->sample($lines, 'algen_cloudportal_api_tokens', ['status' => $status], $count, 'gauge', 'API tokens by lifecycle status.');
+        }
 
+        $this->gauge($lines, 'algen_cloudportal_sessions_active', 'Server-side sessions that are active and not expired.', $this->scalar("SELECT COUNT(*) FROM user_sessions WHERE revoked_at IS NULL AND (expires_at IS NULL OR expires_at>CURRENT_TIMESTAMP)"));
+        $this->gauge($lines, 'algen_cloudportal_idempotency_processing', 'API idempotency keys currently processing.', $this->scalar("SELECT COUNT(*) FROM api_idempotency_keys WHERE state='processing' AND expires_at>CURRENT_TIMESTAMP"));
         $this->gauge($lines, 'algen_cloudportal_webhook_failed_deliveries', 'Webhook deliveries currently marked failed.', $this->scalar("SELECT COUNT(*) FROM webhook_deliveries WHERE status='failed'"));
         $this->gauge($lines, 'algen_cloudportal_mfa_enabled_users', 'Active users with MFA enabled.', $this->scalar("SELECT COUNT(*) FROM users WHERE status='active' AND mfa_enabled=1"));
 
@@ -62,6 +70,23 @@ final class PrometheusMetricsService
             $result[(string) $row['label']] = (int) $row['count'];
         }
         return $result;
+    }
+
+    /** @return array<string,int> */
+    private function countBySafe(string $table, string $column, string $where = ''): array
+    {
+        $allowed = ['reconciliation_incidents.severity', 'api_tokens.status'];
+        if (!in_array($table . '.' . $column, $allowed, true)) return [];
+        try {
+            $sql = "SELECT {$column} label,COUNT(*) count FROM {$table}" . ($where === '' ? '' : ' WHERE ' . $where) . " GROUP BY {$column}";
+            $rows = $this->pdo->query($sql)->fetchAll();
+            $result = [];
+            foreach ($rows as $row) $result[(string) $row['label']] = (int) $row['count'];
+            return $result;
+        } catch (\Throwable) {
+            // Keep metrics available during a rolling schema upgrade.
+            return [];
+        }
     }
 
     private function scalar(string $sql): int
