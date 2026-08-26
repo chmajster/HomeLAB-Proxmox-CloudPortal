@@ -179,7 +179,6 @@ function dumpDatabase(Application $app, string $target): void
             '--triggers',
             '--events',
             '--hex-blob',
-            '--set-gtid-purged=OFF',
             '--result-file=' . $target,
             (string) $app->config->get('database.name'),
         ]);
