@@ -18,10 +18,8 @@ final class SessionService
         if ($hash === null) return;
         $expires = gmdate('Y-m-d H:i:s', time() + max(300, $lifetimeSeconds));
         $statement = $this->pdo->prepare(
-            'INSERT INTO user_sessions(user_id,session_id_hash,ip_address,user_agent,last_seen_at,expires_at)
-             VALUES(:user,:hash,:ip,:agent,CURRENT_TIMESTAMP,:expires)
-             ON DUPLICATE KEY UPDATE user_id=VALUES(user_id),ip_address=VALUES(ip_address),user_agent=VALUES(user_agent),
-                                     last_seen_at=CURRENT_TIMESTAMP,expires_at=VALUES(expires_at),revoked_at=NULL'
+            'INSERT IGNORE INTO user_sessions(user_id,session_id_hash,ip_address,user_agent,last_seen_at,expires_at)
+             VALUES(:user,:hash,:ip,:agent,CURRENT_TIMESTAMP,:expires)'
         );
         $statement->execute([
             'user' => $userId,
@@ -30,6 +28,30 @@ final class SessionService
             'agent' => mb_substr($userAgent, 0, 500),
             'expires' => $expires,
         ]);
+        if ($statement->rowCount() === 0) {
+            $this->pdo->prepare(
+                'UPDATE user_sessions SET ip_address=:ip,user_agent=:agent,last_seen_at=CURRENT_TIMESTAMP,expires_at=:expires
+                 WHERE user_id=:user AND session_id_hash=:hash AND revoked_at IS NULL'
+            )->execute([
+                'ip' => substr($ip, 0, 45), 'agent' => mb_substr($userAgent, 0, 500),
+                'expires' => $expires, 'user' => $userId, 'hash' => $hash,
+            ]);
+        }
+    }
+
+    /** Returns null when this is a legacy/unregistered session, true when active, false when revoked/expired. */
+    public function validate(int $userId): ?bool
+    {
+        $hash = $this->currentHash();
+        if ($hash === null) return false;
+        $statement = $this->pdo->prepare(
+            'SELECT revoked_at,expires_at FROM user_sessions WHERE user_id=:user AND session_id_hash=:hash LIMIT 1'
+        );
+        $statement->execute(['user' => $userId, 'hash' => $hash]);
+        $row = $statement->fetch();
+        if (!is_array($row)) return null;
+        if ($row['revoked_at'] !== null) return false;
+        return $row['expires_at'] === null || strtotime((string) $row['expires_at']) > time();
     }
 
     public function touch(int $userId, int $lifetimeSeconds): bool
