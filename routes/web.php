@@ -33,6 +33,8 @@ return static function (Router $router, Application $app): void {
     $router->add('GET', '/install/finish', [$installer, 'finish']);
     $router->add('GET', '/login', [$auth, 'loginPage']);
     $router->add('POST', '/login', [$auth, 'login']);
+    $router->add('GET', '/login/mfa', [$auth, 'mfaPage']);
+    $router->add('POST', '/login/mfa', [$auth, 'mfaVerify']);
     $router->add('POST', '/logout', [$auth, 'logout']);
     $router->add('GET', '/api/docs', [$openApi, 'docs']);
     $router->add('GET', '/', [$portal, 'home']);
