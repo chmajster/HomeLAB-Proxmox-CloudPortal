@@ -30,6 +30,11 @@ if ! command -v ansible-playbook >/dev/null 2>&1; then
   fi
 fi
 
+if ! command -v runuser >/dev/null 2>&1; then
+  echo "runuser is required to verify worker permissions." >&2
+  exit 1
+fi
+
 install -d -m 0750 -o root -g "${WORKER_GROUP}" "${KEY_DIR}"
 install -d -m 0750 -o root -g "${WORKER_GROUP}" "${PLAYBOOK_DIR}"
 
@@ -45,17 +50,17 @@ chown root:"${WORKER_GROUP}" "${PRIVATE_KEY}" "${PUBLIC_KEY}"
 chmod 0640 "${PRIVATE_KEY}"
 chmod 0644 "${PUBLIC_KEY}"
 
-if ! sudo -u "${WORKER_USER}" test -r "${PRIVATE_KEY}"; then
+if ! runuser -u "${WORKER_USER}" -- test -r "${PRIVATE_KEY}"; then
   echo "Worker cannot read Ansible private key: ${PRIVATE_KEY}" >&2
   exit 1
 fi
 
-if ! sudo -u "${WORKER_USER}" test -r "${PUBLIC_KEY}"; then
+if ! runuser -u "${WORKER_USER}" -- test -r "${PUBLIC_KEY}"; then
   echo "Worker cannot read Ansible public key: ${PUBLIC_KEY}" >&2
   exit 1
 fi
 
-if ! sudo -u "${WORKER_USER}" test -x "$(command -v ansible-playbook)"; then
+if ! runuser -u "${WORKER_USER}" -- test -x "$(command -v ansible-playbook)"; then
   echo "Worker cannot execute ansible-playbook." >&2
   exit 1
 fi
