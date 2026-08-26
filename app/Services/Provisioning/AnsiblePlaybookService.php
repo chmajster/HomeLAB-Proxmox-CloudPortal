@@ -79,6 +79,10 @@ final class AnsiblePlaybookService
     /** @return array{playbook:string,host:string,exit_code:int,output:string} */
     public function run(string $playbook, string $host, string $user, array $extraVars = []): array
     {
+        $extraVars = array_replace([
+            'cloudportal_target_ip' => $host,
+            'cloudportal_target_user' => $user,
+        ], $extraVars);
         $result = $this->runInventory($playbook, [[
             'host_alias' => 'target',
             'ip_address' => $host,
@@ -101,6 +105,9 @@ final class AnsiblePlaybookService
     public function runInventory(string $playbook, array $hosts, array $extraVars = []): array
     {
         $playbookPath = $this->resolve($playbook);
+        if (!str_starts_with($this->command, '/') || preg_match('/[\r\n\0]/', $this->command) === 1) {
+            throw new \RuntimeException('Ansible command must be an absolute executable path.');
+        }
         if (!is_file($this->command) || !is_executable($this->command)) {
             throw new \RuntimeException('ansible-playbook is not installed or executable: ' . $this->command);
         }
@@ -135,17 +142,17 @@ final class AnsiblePlaybookService
         $inventoryPath = $this->temporaryInventory($normalized);
         try {
             $parts = [
-                escapeshellarg($this->command),
-                '-i', escapeshellarg($inventoryPath),
-                '--private-key', escapeshellarg($this->privateKeyPath),
+                $this->command,
+                '-i', $inventoryPath,
+                '--private-key', $this->privateKeyPath,
                 '--timeout', '30',
-                '--ssh-common-args', escapeshellarg('-o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -o ConnectTimeout=10'),
+                '--ssh-common-args', '-o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -o ConnectTimeout=10',
             ];
             if ($extraVars !== []) {
                 $parts[] = '--extra-vars';
-                $parts[] = escapeshellarg(json_encode($extraVars, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE | JSON_THROW_ON_ERROR));
+                $parts[] = json_encode($extraVars, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE | JSON_THROW_ON_ERROR);
             }
-            $parts[] = escapeshellarg($playbookPath);
+            $parts[] = $playbookPath;
             $result = $this->execute($parts);
         } finally {
             @unlink($inventoryPath);
@@ -192,14 +199,14 @@ final class AnsiblePlaybookService
     /** @param list<string> $parts @return array{exit_code:int,output:string} */
     private function execute(array $parts): array
     {
-        $command = implode(' ', [
-            'ANSIBLE_HOST_KEY_CHECKING=False',
-            'ANSIBLE_LOCAL_TEMP=/tmp/algen-ansible-local',
-            'ANSIBLE_SSH_CONTROL_PATH_DIR=/tmp/algen-ansible-cp',
-            implode(' ', $parts),
-        ]);
+        $environment = getenv();
+        if (!is_array($environment)) $environment = [];
+        $environment['ANSIBLE_HOST_KEY_CHECKING'] = 'False';
+        $environment['ANSIBLE_LOCAL_TEMP'] = '/tmp/algen-ansible-local';
+        $environment['ANSIBLE_SSH_CONTROL_PATH_DIR'] = '/tmp/algen-ansible-cp';
+
         $descriptors = [1 => ['pipe', 'w'], 2 => ['pipe', 'w']];
-        $process = proc_open($command, $descriptors, $pipes);
+        $process = proc_open($parts, $descriptors, $pipes, null, $environment, ['bypass_shell' => true]);
         if (!is_resource($process)) throw new \RuntimeException('Could not start ansible-playbook.');
 
         stream_set_blocking($pipes[1], false);
