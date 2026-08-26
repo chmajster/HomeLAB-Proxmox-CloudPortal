@@ -122,9 +122,11 @@ final class OpenApiController
         $paths['/api/v1/admin/audit/search']['get']['responses']['200'] = ['description' => 'Filtered audit results', 'content' => ['application/json' => ['schema' => ['$ref' => '#/components/schemas/AuditSearchResponse']]]];
 
         foreach (['/api/v1/me/api-tokens','/api/v1/me/sessions','/api/v1/me/sessions/revoke-others','/api/v1/me/mfa/setup','/api/v1/me/mfa/enable','/api/v1/me/mfa','/api/v1/me/password'] as $path) {
-            foreach ($paths[$path] ?? [] as &$operation) {
+            if (!isset($paths[$path])) continue;
+            foreach ($paths[$path] as &$operation) {
                 $operation['security'] = [['cookieAuth' => [], 'csrfHeader' => []]];
             }
+            unset($operation);
         }
         $paths['/api/v1/me/api-tokens']['get']['security'] = [['cookieAuth' => []]];
         $paths['/api/v1/me/sessions']['get']['security'] = [['cookieAuth' => []]];
