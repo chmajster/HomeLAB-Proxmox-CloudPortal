@@ -30,7 +30,7 @@ final class ThemePersistenceTest extends TestCase
         $layout = (string) file_get_contents($root . '/resources/views/layouts/app.php');
         $themeScript = (string) file_get_contents($root . '/public/assets/js/theme.js');
 
-        self::assertStringContainsString("['vm-details', 'project-details', 'admin-resource-details', 'settings']", $layout);
+        self::assertStringContainsString("['vm-details', 'project-details', 'admin-resource-details', 'settings', 'security']", $layout);
         self::assertStringContainsString("['vm-details', 'project-details', 'admin-resource-details']", $themeScript);
         self::assertStringContainsString("document.getElementById('themeButton')", $themeScript);
         self::assertStringContainsString("localStorage.setItem(storageKey, next)", $themeScript);
