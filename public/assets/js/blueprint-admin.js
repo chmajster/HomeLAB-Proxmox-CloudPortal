@@ -34,6 +34,7 @@
       api('/api/v1/ansible/playbooks'),
       api('/api/v1/cloud-init-profiles'),
     ]);
+    const globalCloudInit = (cloudInit || []).filter(profile => Number(profile.is_global) === 1 || profile.is_global === true);
 
     content.innerHTML = `<div class="content-grid">
       <section class="panel"><div class="panel-header"><div><p class="eyebrow mb-0">Automation profiles</p><h2 class="h5 mb-0">VM Blueprints</h2></div></div><div class="table-responsive"><table class="table"><thead><tr><th>Name</th><th>Project</th><th>Template / Plan</th><th>Ansible</th><th>Status</th><th></th></tr></thead><tbody id="blueprintRows"></tbody></table></div></section>
@@ -47,7 +48,7 @@
           <div class="col-md-6"><label class="form-label">Template</label><select class="form-select" id="bpTemplate" required></select></div>
           <div class="col-md-6"><label class="form-label">Network</label><select class="form-select" id="bpNetwork" required></select></div>
           <div class="col-md-6"><label class="form-label">Storage</label><select class="form-select" id="bpStorage" required></select></div>
-          <div class="col-md-6"><label class="form-label">Cloud-Init profile</label><select class="form-select" id="bpCloudInit"><option value="">Default</option>${options(cloudInit)}</select></div>
+          <div class="col-md-6"><label class="form-label">Cloud-Init profile</label><select class="form-select" id="bpCloudInit"><option value="">Default</option>${options(globalCloudInit)}</select><div class="form-text">Blueprint uses only global profiles because it can be deployed by any project member.</div></div>
           <div class="col-12"><label class="form-label">Initial hardening command</label><input class="form-control font-monospace" id="bpHardening" value="/root/vm-setup.sh"><div class="form-text">Executed inside the VM through QEMU Guest Agent before reboot.</div></div>
           <div class="col-md-8"><label class="form-label">Ansible playbook</label><select class="form-select" id="bpPlaybook"><option value="">None</option>${playbooks.map(p => `<option value="${h(p.id)}">${h(p.name)}</option>`).join('')}</select></div>
           <div class="col-md-4"><label class="form-label">Ansible extra_vars JSON</label><input class="form-control font-monospace" id="bpExtraVars" value="{}"></div>
@@ -70,7 +71,7 @@
       const storage = document.getElementById('bpStorage');
       template.innerHTML = options(catalog.templates);
       network.innerHTML = options(catalog.networks);
-      storage.innerHTML = options(catalog.storages, 'id', 'name');
+      storage.innerHTML = options(catalog.storages, 'id', 'storage_name');
       if (selected.template_id) template.value = String(selected.template_id);
       if (selected.network_id) network.value = String(selected.network_id);
       if (selected.storage_id) storage.value = String(selected.storage_id);
