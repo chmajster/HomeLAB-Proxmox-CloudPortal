@@ -95,6 +95,8 @@ jobs:
       - run: npm install --no-audit --no-fund
       - run: node --check public/assets/js/cloud-features.js
       - run: node --check public/assets/js/openapi-docs.js
+      - run: node --check public/assets/js/security.js
+      - run: node --check public/assets/js/activity-hardening.js
       - run: npx playwright install --with-deps chromium
       - run: php -S 127.0.0.1:8765 tests/http-router.php > /tmp/cloudportal-http.log 2>&1 &
       - run: npx playwright test
