@@ -25,13 +25,7 @@ final class AuthService
     ) {
     }
 
-    /**
-     * Verifies the primary credential. For MFA-enabled users this creates only a
-     * short-lived pending challenge and deliberately does not authenticate the
-     * browser session.
-     *
-     * @return array<string,mixed>
-     */
+    /** @return array<string,mixed> */
     public function login(string $identity, string $password, string $ip): array
     {
         $locks = $this->rateLimiter->acquire($identity, $ip);
@@ -107,6 +101,7 @@ final class AuthService
         if ($pending === null) {
             throw new HttpException(401, 'MFA challenge has expired. Sign in again.');
         }
+        $this->rateLimiter->clearFailuresForIdentity($this->mfaIdentity((int) $pending['id']));
         $this->clearMfaChallenge();
         return $this->establishSession($pending, $ip, true);
     }
@@ -114,17 +109,27 @@ final class AuthService
     public function recordMfaFailure(string $ip): void
     {
         $userId = $_SESSION['mfa_pending_user_id'] ?? null;
+        if (!is_numeric($userId)) {
+            $this->clearMfaChallenge();
+            throw new HttpException(401, 'MFA challenge has expired. Sign in again.');
+        }
+
+        $identity = $this->mfaIdentity((int) $userId);
+        $locks = $this->rateLimiter->acquire($identity, $ip);
+        try {
+            $this->rateLimiter->ensureAllowed($identity, $ip);
+            $this->rateLimiter->record($identity, $ip, false);
+        } catch (HttpException $exception) {
+            $this->clearMfaChallenge();
+            $this->audit->log((int) $userId, $ip, 'auth.mfa', 'failure', null, null, ['reason' => 'rate_limited']);
+            throw new HttpException(429, 'Too many invalid MFA attempts. Sign in again.');
+        } finally {
+            $this->rateLimiter->release($locks);
+        }
+
         $attempts = (int) ($_SESSION['mfa_attempts'] ?? 0) + 1;
         $_SESSION['mfa_attempts'] = $attempts;
-        $this->audit->log(
-            is_numeric($userId) ? (int) $userId : null,
-            $ip,
-            'auth.mfa',
-            'failure',
-            null,
-            null,
-            ['attempts' => $attempts],
-        );
+        $this->audit->log((int) $userId, $ip, 'auth.mfa', 'failure', null, null, ['attempts' => $attempts]);
         if ($attempts >= 8) {
             $this->clearMfaChallenge();
             throw new HttpException(429, 'Too many invalid MFA attempts. Sign in again.');
@@ -258,6 +263,11 @@ final class AuthService
     private function clearMfaChallenge(): void
     {
         unset($_SESSION['mfa_pending_user_id'], $_SESSION['mfa_pending_session_version'], $_SESSION['mfa_pending_at'], $_SESSION['mfa_attempts']);
+    }
+
+    private function mfaIdentity(int $userId): string
+    {
+        return 'mfa:user:' . $userId;
     }
 
     private static function dummyPasswordHash(): string
