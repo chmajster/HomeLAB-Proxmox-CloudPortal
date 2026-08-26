@@ -1,7 +1,6 @@
-ALTER TABLE users
-    ADD COLUMN mfa_enabled TINYINT(1) NOT NULL DEFAULT 0 AFTER session_version,
-    ADD COLUMN mfa_secret_encrypted TEXT NULL AFTER mfa_enabled,
-    ADD COLUMN mfa_enabled_at TIMESTAMP NULL AFTER mfa_secret_encrypted;
+ALTER TABLE users ADD COLUMN mfa_enabled TINYINT(1) NOT NULL DEFAULT 0 AFTER session_version;
+ALTER TABLE users ADD COLUMN mfa_secret_encrypted TEXT NULL AFTER mfa_enabled;
+ALTER TABLE users ADD COLUMN mfa_enabled_at TIMESTAMP NULL AFTER mfa_secret_encrypted;
 
 CREATE TABLE IF NOT EXISTS user_mfa_recovery_codes (
     id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
