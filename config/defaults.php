@@ -36,4 +36,11 @@ return [
     'uploads' => [
         'max_iso_bytes' => (int) (getenv('MAX_ISO_UPLOAD_BYTES') ?: 17179869184),
     ],
+    'provisioning' => [
+        'ansible_playbooks_directory' => getenv('ANSIBLE_PLAYBOOKS_DIRECTORY') ?: dirname(__DIR__) . '/ansible/playbooks',
+        'ansible_command' => getenv('ANSIBLE_PLAYBOOK_COMMAND') ?: '/usr/bin/ansible-playbook',
+        'ansible_private_key' => getenv('ANSIBLE_PRIVATE_KEY') ?: '/var/lib/algen-cloud-portal/.ssh/ansible_ed25519',
+        'ansible_public_key' => getenv('ANSIBLE_PUBLIC_KEY') ?: '/var/lib/algen-cloud-portal/.ssh/ansible_ed25519.pub',
+        'ansible_timeout' => (int) (getenv('ANSIBLE_TIMEOUT') ?: 1200),
+    ],
 ];
