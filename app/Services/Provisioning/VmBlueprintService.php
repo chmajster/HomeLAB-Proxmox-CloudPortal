@@ -138,9 +138,9 @@ final class VmBlueprintService
         $statement->execute(['project' => $project, 'template' => $template, 'plan' => $plan, 'network' => $network, 'storage' => $storage]);
         if (!$statement->fetchColumn()) throw new HttpException(422, 'Blueprint resources are not compatible or not assigned to the selected project.');
         if ($cloudInit !== null) {
-            $check = $this->pdo->prepare('SELECT 1 FROM cloud_init_profiles WHERE id=:id AND enabled=1 LIMIT 1');
+            $check = $this->pdo->prepare('SELECT 1 FROM cloud_init_profiles WHERE id=:id AND enabled=1 AND is_global=1 LIMIT 1');
             $check->execute(['id' => $cloudInit]);
-            if (!$check->fetchColumn()) throw new HttpException(422, 'Selected Cloud-Init profile is unavailable.');
+            if (!$check->fetchColumn()) throw new HttpException(422, 'Blueprints can only use enabled global Cloud-Init profiles.');
         }
     }
 
