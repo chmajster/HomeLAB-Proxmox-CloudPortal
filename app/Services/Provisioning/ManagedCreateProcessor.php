@@ -147,7 +147,7 @@ final class ManagedCreateProcessor
             $playbook = trim((string) ($payload['ansible_playbook'] ?? ''));
             $rebootBeforeAnsible = !empty($payload['reboot_before_ansible']) && $playbook !== '';
             if ($rebootBeforeAnsible) {
-                $state->transition($jobId, 'REBOOTING', 12, 'Reboot before Ansible');
+                $state->transition($jobId, 'CONFIGURING', 12, 'Reboot before Ansible');
                 $upid = $this->requireUpid($client->post($path . '/status/reboot'));
                 $client->waitForTask((string) $vm['node_name'], $upid, 900);
                 sleep(3);
@@ -155,9 +155,11 @@ final class ManagedCreateProcessor
                 $state->step($jobId, 12, 'Reboot before Ansible', 'VM rebooted and guest agent is responding');
             }
 
-            $state->transition($jobId, 'CONFIGURING', 13, 'Ready for Ansible');
-            $state->step($jobId, 13, 'Ready for Ansible', $playbook === '' ? 'No Ansible playbook selected' : 'Ansible job will be queued automatically');
-            $state->ready($jobId);
+            $state->transition($jobId, 'CONFIGURING', 13, $playbook === '' ? 'Final configuration' : 'Waiting for Ansible');
+            $state->step($jobId, 13, $playbook === '' ? 'Final configuration' : 'Waiting for Ansible', $playbook === '' ? 'No Ansible playbook selected' : 'Ansible job will be queued automatically');
+            if ($playbook === '') {
+                $state->ready($jobId, 13, 'READY');
+            }
             $ready = $state->forJob($jobId);
             $latest = $this->jobs->find((string) $job['public_id']);
             $result = is_array($latest['result'] ?? null) ? $latest['result'] : (is_array($final['result'] ?? null) ? $final['result'] : []);
@@ -166,12 +168,12 @@ final class ManagedCreateProcessor
             $result['fqdn'] = (string) $ready['fqdn'];
             $result['ip_address'] = (string) $ready['ip_address'];
             $result['blueprint_id'] = $blueprintId > 0 ? $blueprintId : null;
-            $result['provisioning_status'] = $playbook === '' ? 'READY' : 'READY_FOR_ANSIBLE';
+            $result['provisioning_status'] = $playbook === '' ? 'READY' : 'WAITING_FOR_ANSIBLE';
             $this->jobs->complete($jobId, $result);
             $this->audit->log(
                 $job['user_id'] === null ? null : (int) $job['user_id'],
                 '127.0.0.1',
-                'vm.provisioning.ready',
+                $playbook === '' ? 'vm.provisioning.ready' : 'vm.provisioning.waiting_ansible',
                 'success',
                 'virtual_machine',
                 (string) $vmId,
