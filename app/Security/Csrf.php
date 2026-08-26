@@ -22,10 +22,16 @@ final class Csrf
         if (in_array($request->method, ['GET', 'HEAD', 'OPTIONS'], true)) {
             return;
         }
+        $authorization = trim((string) $request->header('authorization', ''));
+        if (str_starts_with($request->path, '/api/') && preg_match('/^Bearer\s+\S+$/i', $authorization) === 1) {
+            // Bearer authentication is verified centrally before dispatch. API
+            // tokens are not ambient browser credentials and therefore do not
+            // require a CSRF token.
+            return;
+        }
         $provided = $request->header('x-csrf-token') ?? (is_string($request->input('_csrf')) ? $request->input('_csrf') : '');
         if ($provided === '' || !hash_equals($this->token(), $provided)) {
             throw new HttpException(419, 'CSRF token mismatch.');
         }
     }
 }
-
