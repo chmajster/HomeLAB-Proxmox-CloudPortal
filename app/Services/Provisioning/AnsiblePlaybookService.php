@@ -32,9 +32,7 @@ final class AnsiblePlaybookService
     public function playbooks(): array
     {
         $root = realpath($this->playbooksDirectory);
-        if ($root === false || !is_dir($root)) {
-            return [];
-        }
+        if ($root === false || !is_dir($root)) return [];
 
         $items = [];
         $iterator = new \RecursiveIteratorIterator(
@@ -94,6 +92,7 @@ final class AnsiblePlaybookService
             throw new \RuntimeException('Ansible controller private key is not configured or readable: ' . $this->privateKeyPath);
         }
 
+        $this->waitForSsh($host);
         $extraVars = json_encode([
             'cloudportal_target_ip' => $host,
             'cloudportal_target_user' => $user,
@@ -109,14 +108,10 @@ final class AnsiblePlaybookService
             escapeshellarg($playbookPath),
         ];
         $command = 'ANSIBLE_HOST_KEY_CHECKING=False ' . implode(' ', $parts);
-        $descriptors = [
-            1 => ['pipe', 'w'],
-            2 => ['pipe', 'w'],
-        ];
+        $descriptors = [1 => ['pipe', 'w'], 2 => ['pipe', 'w']];
         $process = proc_open($command, $descriptors, $pipes);
-        if (!is_resource($process)) {
-            throw new \RuntimeException('Could not start ansible-playbook.');
-        }
+        if (!is_resource($process)) throw new \RuntimeException('Could not start ansible-playbook.');
+
         stream_set_blocking($pipes[1], false);
         stream_set_blocking($pipes[2], false);
         $stdout = '';
@@ -160,6 +155,20 @@ final class AnsiblePlaybookService
             'exit_code' => (int) $exitCode,
             'output' => mb_substr($combined, -5000),
         ];
+    }
+
+    private function waitForSsh(string $host): void
+    {
+        $deadline = time() + min(300, max(30, intdiv(max(30, $this->timeout), 2)));
+        do {
+            $socket = @fsockopen($host, 22, $errno, $error, 5.0);
+            if (is_resource($socket)) {
+                fclose($socket);
+                return;
+            }
+            sleep(5);
+        } while (time() < $deadline);
+        throw new \RuntimeException('Timed out waiting for SSH on ' . $host . ':22.');
     }
 
     private function resolve(string $playbook): string
