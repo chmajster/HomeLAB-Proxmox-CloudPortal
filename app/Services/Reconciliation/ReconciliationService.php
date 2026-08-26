@@ -163,7 +163,7 @@ final class ReconciliationService
              ON DUPLICATE KEY UPDATE incident_type=VALUES(incident_type),severity=VALUES(severity),
                virtual_machine_id=VALUES(virtual_machine_id),job_id=VALUES(job_id),details=VALUES(details),
                last_seen_at=CURRENT_TIMESTAMP,
-               status=IF(status='resolved','open',status),resolved_at=IF(status='resolved',NULL,resolved_at)"
+               resolved_at=IF(status='resolved',NULL,resolved_at),status=IF(status='resolved','open',status)"
         );
         $statement->execute([
             'key' => mb_substr($key, 0, 191), 'type' => mb_substr($type, 0, 64), 'severity' => $severity,
