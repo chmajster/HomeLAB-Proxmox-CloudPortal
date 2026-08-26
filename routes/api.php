@@ -6,6 +6,7 @@ use CloudPortal\Application;
 use CloudPortal\Controllers\AdvancedVmController;
 use CloudPortal\Controllers\AdminController;
 use CloudPortal\Controllers\AdminResourceDetailsController;
+use CloudPortal\Controllers\AnsibleController;
 use CloudPortal\Controllers\AuditController;
 use CloudPortal\Controllers\AuthController;
 use CloudPortal\Controllers\CatalogController;
@@ -37,6 +38,7 @@ return static function (Router $router, Application $app): void {
     $vmAssignment = new VmAssignmentAdminController($app);
     $jobs = new JobController($app);
     $catalog = new CatalogController($app);
+    $ansible = new AnsibleController($app);
     $resources = new ResourceController($app);
     $admin = new AdminController($app);
     $adminDetails = new AdminResourceDetailsController($app);
@@ -62,6 +64,15 @@ return static function (Router $router, Application $app): void {
     $router->add('GET', '/api/v1/dashboard', [$dashboard, 'index']);
     $router->add('GET', '/api/v1/catalog', [$catalog, 'index']);
 
+    $router->add('GET', '/api/v1/ansible/playbooks', [$ansible, 'playbooks']);
+    $router->add('GET', '/api/v1/ansible/inventories', [$ansible, 'inventories']);
+    $router->add('POST', '/api/v1/ansible/inventories', [$ansible, 'createInventory']);
+    $router->add('GET', '/api/v1/ansible/inventories/{id}', [$ansible, 'showInventory']);
+    $router->add('DELETE', '/api/v1/ansible/inventories/{id}', [$ansible, 'deleteInventory']);
+    $router->add('POST', '/api/v1/ansible/inventories/{id}/hosts', [$ansible, 'addHost']);
+    $router->add('DELETE', '/api/v1/ansible/inventories/{id}/hosts/{hostId}', [$ansible, 'removeHost']);
+    $router->add('POST', '/api/v1/ansible/inventories/{id}/launch', [$ansible, 'launchInventory']);
+
     $router->add('GET', '/api/v1/ssh-keys', [$cloudInit, 'sshKeys']);
     $router->add('POST', '/api/v1/ssh-keys', [$cloudInit, 'createSshKey']);
     $router->add('DELETE', '/api/v1/ssh-keys/{id}', [$cloudInit, 'deleteSshKey']);
@@ -75,6 +86,7 @@ return static function (Router $router, Application $app): void {
     $router->add('POST', '/api/v1/vms', [$vms, 'create']);
     $router->add('GET', '/api/v1/vms/{id}', [$vms, 'show']);
     $router->add('DELETE', '/api/v1/vms/{id}', [$vms, 'delete']);
+    $router->add('POST', '/api/v1/vms/{id}/ansible', [$ansible, 'launchVm']);
     $router->add('POST', '/api/v1/vms/{id}/snapshots', [$vms, 'snapshot']);
     $router->add('DELETE', '/api/v1/vms/{id}/snapshots/{snapshotId}', [$vms, 'deleteSnapshot']);
     $router->add('POST', '/api/v1/vms/{id}/snapshots/{snapshotName}/rollback', [$advancedVms, 'rollbackSnapshot']);
