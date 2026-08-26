@@ -10,6 +10,8 @@ use PDO;
 
 final class AuthService
 {
+    private const MFA_CHALLENGE_SECONDS = 300;
+
     private static ?string $dummyPasswordHash = null;
     /** @var array<string,mixed>|null */
     private ?array $user = null;
@@ -23,7 +25,13 @@ final class AuthService
     ) {
     }
 
-    /** @return array<string,mixed> */
+    /**
+     * Verifies the primary credential. For MFA-enabled users this creates only a
+     * short-lived pending challenge and deliberately does not authenticate the
+     * browser session.
+     *
+     * @return array<string,mixed>
+     */
     public function login(string $identity, string $password, string $ip): array
     {
         $locks = $this->rateLimiter->acquire($identity, $ip);
@@ -49,18 +57,78 @@ final class AuthService
             throw new HttpException(401, 'Invalid credentials or blocked account.');
         }
 
-        if (session_status() === PHP_SESSION_ACTIVE) {
-            session_regenerate_id(true);
+        if ((int) ($user['mfa_enabled'] ?? 0) === 1) {
+            $this->clearAuthenticatedSession();
+            $_SESSION['mfa_pending_user_id'] = (int) $user['id'];
+            $_SESSION['mfa_pending_session_version'] = (int) $user['session_version'];
+            $_SESSION['mfa_pending_at'] = time();
+            $_SESSION['mfa_attempts'] = 0;
+            $this->audit->log((int) $user['id'], $ip, 'auth.login.primary', 'success', null, null, ['mfa_required' => true]);
+            $safe = $this->safeUser($user);
+            $safe['mfa_required'] = true;
+            return $safe;
         }
-        unset($_SESSION['_csrf']);
-        $_SESSION['user_id'] = (int) $user['id'];
-        $_SESSION['session_version'] = (int) $user['session_version'];
-        $_SESSION['authenticated_at'] = time();
-        $this->pdo->prepare('UPDATE users SET last_login_at = CURRENT_TIMESTAMP WHERE id = :id')->execute(['id' => $user['id']]);
-        $this->audit->log((int) $user['id'], $ip, 'auth.login', 'success');
-        unset($user['password_hash']);
-        $this->user = $user;
+
+        return $this->establishSession($user, $ip, false);
+    }
+
+    /** @return array<string,mixed>|null */
+    public function pendingMfaUser(): ?array
+    {
+        $userId = $_SESSION['mfa_pending_user_id'] ?? null;
+        $started = $_SESSION['mfa_pending_at'] ?? null;
+        $sessionVersion = $_SESSION['mfa_pending_session_version'] ?? null;
+        if ((!is_int($userId) && !ctype_digit((string) $userId))
+            || (!is_int($started) && !ctype_digit((string) $started))
+            || time() - (int) $started > self::MFA_CHALLENGE_SECONDS) {
+            $this->clearMfaChallenge();
+            return null;
+        }
+        $statement = $this->pdo->prepare(
+            'SELECT u.id,u.role_id,u.username,u.email,u.status,u.locale,u.session_version,u.mfa_enabled,r.slug AS role_slug
+             FROM users u JOIN roles r ON r.id=u.role_id WHERE u.id=:id LIMIT 1'
+        );
+        $statement->execute(['id' => (int) $userId]);
+        $user = $statement->fetch();
+        if (!is_array($user)
+            || (string) $user['status'] !== 'active'
+            || (int) $user['mfa_enabled'] !== 1
+            || (int) $user['session_version'] !== (int) $sessionVersion) {
+            $this->clearMfaChallenge();
+            return null;
+        }
         return $user;
+    }
+
+    /** @return array<string,mixed> */
+    public function completeMfa(string $ip): array
+    {
+        $pending = $this->pendingMfaUser();
+        if ($pending === null) {
+            throw new HttpException(401, 'MFA challenge has expired. Sign in again.');
+        }
+        $this->clearMfaChallenge();
+        return $this->establishSession($pending, $ip, true);
+    }
+
+    public function recordMfaFailure(string $ip): void
+    {
+        $userId = $_SESSION['mfa_pending_user_id'] ?? null;
+        $attempts = (int) ($_SESSION['mfa_attempts'] ?? 0) + 1;
+        $_SESSION['mfa_attempts'] = $attempts;
+        $this->audit->log(
+            is_numeric($userId) ? (int) $userId : null,
+            $ip,
+            'auth.mfa',
+            'failure',
+            null,
+            null,
+            ['attempts' => $attempts],
+        );
+        if ($attempts >= 8) {
+            $this->clearMfaChallenge();
+            throw new HttpException(429, 'Too many invalid MFA attempts. Sign in again.');
+        }
     }
 
     public function logout(string $ip): void
@@ -74,7 +142,9 @@ final class AuthService
             $params = session_get_cookie_params();
             setcookie(session_name(), '', time() - 42000, $params['path'], $params['domain'], $params['secure'], $params['httponly']);
         }
-        session_destroy();
+        if (session_status() === PHP_SESSION_ACTIVE) {
+            session_destroy();
+        }
         $this->user = null;
         $this->permissions = null;
     }
@@ -90,13 +160,13 @@ final class AuthService
             return null;
         }
         $statement = $this->pdo->prepare(
-            'SELECT u.id, u.role_id, u.username, u.email, u.status, u.locale, u.session_version, r.slug AS role_slug
+            'SELECT u.id, u.role_id, u.username, u.email, u.status, u.locale, u.session_version, u.mfa_enabled, r.slug AS role_slug
              FROM users u JOIN roles r ON r.id = u.role_id WHERE u.id = :id LIMIT 1'
         );
         $statement->execute(['id' => (int) $id]);
         $user = $statement->fetch();
         if (!is_array($user) || $user['status'] !== 'active' || (int) ($user['session_version'] ?? 0) !== (int) ($_SESSION['session_version'] ?? 0)) {
-            unset($_SESSION['user_id'], $_SESSION['session_version']);
+            unset($_SESSION['user_id'], $_SESSION['session_version'], $_SESSION['authenticated_at'], $_SESSION['mfa_authenticated_at']);
             return null;
         }
         return $this->user = $user;
@@ -147,6 +217,47 @@ final class AuthService
         $algorithm = defined('PASSWORD_ARGON2ID') ? PASSWORD_ARGON2ID : PASSWORD_DEFAULT;
         $hash = password_hash($password, $algorithm);
         return $hash ?: throw new \RuntimeException('Password hashing failed.');
+    }
+
+    /** @param array<string,mixed> $user @return array<string,mixed> */
+    private function establishSession(array $user, string $ip, bool $mfa): array
+    {
+        if (session_status() === PHP_SESSION_ACTIVE) {
+            session_regenerate_id(true);
+        }
+        unset($_SESSION['_csrf']);
+        $this->clearMfaChallenge();
+        $_SESSION['user_id'] = (int) $user['id'];
+        $_SESSION['session_version'] = (int) $user['session_version'];
+        $_SESSION['authenticated_at'] = time();
+        if ($mfa) {
+            $_SESSION['mfa_authenticated_at'] = time();
+        }
+        $this->pdo->prepare('UPDATE users SET last_login_at = CURRENT_TIMESTAMP WHERE id = :id')->execute(['id' => $user['id']]);
+        $this->audit->log((int) $user['id'], $ip, $mfa ? 'auth.mfa' : 'auth.login', 'success');
+        $safe = $this->safeUser($user);
+        $safe['mfa_required'] = false;
+        $this->user = $safe;
+        return $safe;
+    }
+
+    /** @param array<string,mixed> $user @return array<string,mixed> */
+    private function safeUser(array $user): array
+    {
+        unset($user['password_hash'], $user['mfa_secret_encrypted']);
+        return $user;
+    }
+
+    private function clearAuthenticatedSession(): void
+    {
+        unset($_SESSION['user_id'], $_SESSION['session_version'], $_SESSION['authenticated_at'], $_SESSION['mfa_authenticated_at']);
+        $this->user = null;
+        $this->permissions = null;
+    }
+
+    private function clearMfaChallenge(): void
+    {
+        unset($_SESSION['mfa_pending_user_id'], $_SESSION['mfa_pending_session_version'], $_SESSION['mfa_pending_at'], $_SESSION['mfa_attempts']);
     }
 
     private static function dummyPasswordHash(): string
