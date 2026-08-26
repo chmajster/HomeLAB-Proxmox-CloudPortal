@@ -38,6 +38,22 @@ final class Response
         return new self($html, $status, ['Content-Type' => 'text/html; charset=utf-8', ...$headers]);
     }
 
+    public function body(): string
+    {
+        return $this->body;
+    }
+
+    public function status(): int
+    {
+        return $this->status;
+    }
+
+    /** @return array<string,string> */
+    public function headers(): array
+    {
+        return $this->headers;
+    }
+
     public function send(): never
     {
         http_response_code($this->status);
