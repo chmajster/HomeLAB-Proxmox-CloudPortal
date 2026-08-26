@@ -80,7 +80,8 @@ final class JobRepository
     {
         $encoded = json_encode($result, JSON_THROW_ON_ERROR | JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE);
         $managedStatus = $this->managedProvisioningStatus($jobId);
-        if ($managedStatus !== null && $managedStatus !== 'READY') {
+        $handoffToAnsible = ($result['provisioning_status'] ?? null) === 'WAITING_FOR_ANSIBLE';
+        if ($managedStatus !== null && $managedStatus !== 'READY' && !$handoffToAnsible) {
             $vmId = isset($result['virtual_machine_id']) ? (int) $result['virtual_machine_id'] : 0;
             $this->pdo->prepare(
                 "UPDATE jobs SET status='running',result=:result,error_message=NULL,finished_at=NULL,dead_letter_at=NULL,
@@ -219,7 +220,7 @@ final class JobRepository
 
     private function normalizeCorrelationId(mixed $value): ?string
     {
-        $value = strtolower(trim((string) ($value ?? '')));
+        $value = strtolower(trim((string) $value));
         return preg_match('/^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/', $value) === 1 ? $value : null;
     }
 }
