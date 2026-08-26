@@ -47,6 +47,7 @@ final class ManagedCreateProcessor
         $vmId = 0;
         try {
             $payload = is_array($job['payload'] ?? null) ? $job['payload'] : [];
+            $blueprintId = (int) ($payload['blueprint_id'] ?? 0);
             $provisioning = $state->forJob($jobId);
             $hostname = (string) $provisioning['hostname'];
             $ipAddress = (string) $provisioning['ip_address'];
@@ -76,7 +77,7 @@ final class ManagedCreateProcessor
 
             $state->transition($jobId, 'PROVISIONING', 7, 'Clone VM from template');
             if ($vmId <= 0) {
-                if ($this->terraformCreate instanceof TerraformProvisioner) {
+                if ($blueprintId <= 0 && $this->terraformCreate instanceof TerraformProvisioner) {
                     $created = $this->terraformCreate->create($job);
                     $vmId = (int) ($created['virtual_machine_id'] ?? 0);
                 } else {
@@ -105,7 +106,6 @@ final class ManagedCreateProcessor
             }
             $state->creating($jobId, $vmId);
 
-            $blueprintId = (int) ($payload['blueprint_id'] ?? 0);
             if ($blueprintId > 0) {
                 $this->database->pdo()->prepare('UPDATE virtual_machines SET blueprint_id=:blueprint WHERE id=:id')
                     ->execute(['blueprint' => $blueprintId, 'id' => $vmId]);
@@ -168,6 +168,7 @@ final class ManagedCreateProcessor
             $result['fqdn'] = (string) $ready['fqdn'];
             $result['ip_address'] = (string) $ready['ip_address'];
             $result['blueprint_id'] = $blueprintId > 0 ? $blueprintId : null;
+            $result['provisioning_driver'] = $blueprintId > 0 ? 'proxmox-api' : ($this->terraformCreate instanceof TerraformProvisioner ? 'terraform' : 'proxmox-api');
             $result['provisioning_status'] = $playbook === '' ? 'READY' : 'WAITING_FOR_ANSIBLE';
             $this->jobs->complete($jobId, $result);
             $this->audit->log(
@@ -177,11 +178,13 @@ final class ManagedCreateProcessor
                 'success',
                 'virtual_machine',
                 (string) $vmId,
-                ['hostname' => $ready['hostname'], 'fqdn' => $ready['fqdn'], 'ip_address' => $ready['ip_address'], 'blueprint_id' => $blueprintId ?: null],
+                ['hostname' => $ready['hostname'], 'fqdn' => $ready['fqdn'], 'ip_address' => $ready['ip_address'], 'blueprint_id' => $blueprintId ?: null, 'driver' => $blueprintId > 0 ? 'proxmox-api' : null],
             );
         } catch (Throwable $exception) {
             $message = $exception->getMessage();
-            if ($vmId > 0 && $this->terraformCreate instanceof TerraformProvisioner) {
+            $payload = is_array($job['payload'] ?? null) ? $job['payload'] : [];
+            $blueprintId = (int) ($payload['blueprint_id'] ?? 0);
+            if ($vmId > 0 && $blueprintId <= 0 && $this->terraformCreate instanceof TerraformProvisioner) {
                 try {
                     $state->rollback($jobId, 'Provisioning failed after VM creation; Terraform rollback started.');
                     if ($this->terraformCreate->destroyForRollback($job, $vmId)) {
