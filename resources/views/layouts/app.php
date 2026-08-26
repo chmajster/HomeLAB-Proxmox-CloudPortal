@@ -29,12 +29,14 @@ $assetVersion = static function (string $path) use ($assetRoot): string {
   <script src="<?= htmlspecialchars((string) $basePath, ENT_QUOTES, 'UTF-8') ?>/assets/js/modules/api.js?v=<?= $assetVersion('js/modules/api.js') ?>" defer></script>
   <script src="<?= htmlspecialchars((string) $basePath, ENT_QUOTES, 'UTF-8') ?>/assets/js/modules/jobs.js?v=<?= $assetVersion('js/modules/jobs.js') ?>" defer></script>
   <script src="<?= htmlspecialchars((string) $basePath, ENT_QUOTES, 'UTF-8') ?>/assets/js/modules/system.js?v=<?= $assetVersion('js/modules/system.js') ?>" defer></script>
-  <?php if (!in_array($page, ['vm-details', 'project-details', 'admin-resource-details', 'settings', 'security'], true)): ?>
+  <?php if (!in_array($page, ['vm-details', 'project-details', 'admin-resource-details', 'settings', 'security', 'ansible'], true)): ?>
     <script src="<?= htmlspecialchars((string) $basePath, ENT_QUOTES, 'UTF-8') ?>/assets/js/app.js?v=<?= $assetVersion('js/app.js') ?>" defer></script>
     <script src="<?= htmlspecialchars((string) $basePath, ENT_QUOTES, 'UTF-8') ?>/assets/js/managed-provisioning.js?v=<?= $assetVersion('js/managed-provisioning.js') ?>" defer></script>
   <?php endif; ?>
   <?php if ($page === 'create-vm'): ?>
     <script src="<?= htmlspecialchars((string) $basePath, ENT_QUOTES, 'UTF-8') ?>/assets/js/ansible-create-vm.js?v=<?= $assetVersion('js/ansible-create-vm.js') ?>" defer></script>
+  <?php elseif ($page === 'ansible'): ?>
+    <script src="<?= htmlspecialchars((string) $basePath, ENT_QUOTES, 'UTF-8') ?>/assets/js/ansible-tower.js?v=<?= $assetVersion('js/ansible-tower.js') ?>" defer></script>
   <?php endif; ?>
   <script src="<?= htmlspecialchars((string) $basePath, ENT_QUOTES, 'UTF-8') ?>/assets/js/cloud-features.js?v=<?= $assetVersion('js/cloud-features.js') ?>" defer></script>
   <script src="<?= htmlspecialchars((string) $basePath, ENT_QUOTES, 'UTF-8') ?>/assets/js/portal-enhancements.js?v=<?= $assetVersion('js/portal-enhancements.js') ?>" defer></script>
