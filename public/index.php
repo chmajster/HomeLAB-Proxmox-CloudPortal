@@ -10,6 +10,7 @@ use CloudPortal\Http\Router;
 use CloudPortal\Installer\Services\JsonInstaller;
 use CloudPortal\Security\Headers;
 use CloudPortal\Services\Http\IdempotencyService;
+use CloudPortal\Support\Uuid;
 
 $root = dirname(__DIR__);
 $maintenancePath = $root . '/storage/maintenance.json';
@@ -78,6 +79,13 @@ $idempotencyContext = null;
 
 try {
     $request = Request::capture($app->basePath());
+    $providedCorrelation = strtolower(trim((string) $request->header('x-correlation-id', '')));
+    $correlationId = preg_match('/^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/', $providedCorrelation) === 1
+        ? $providedCorrelation
+        : Uuid::v4();
+    $_SERVER['CLOUD_PORTAL_CORRELATION_ID'] = $correlationId;
+    header('X-Correlation-ID: ' . $correlationId);
+
     $jsonInstallPath = $root . '/install.json';
     if (!$app->installed() && in_array($request->path, ['/install', '/install/'], true) && is_file($jsonInstallPath)) {
         try {
