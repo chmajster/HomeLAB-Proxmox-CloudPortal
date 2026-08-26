@@ -74,7 +74,7 @@ final class DnsSettingsProvisioningTest extends TestCase
         $source = (string) file_get_contents(dirname(__DIR__, 2) . '/app/Services/Provisioning/ManagedCreateProcessor.php');
         $ensure = strpos($source, 'ensureVmRecords($hostname, $ipAddress');
         $verify = strpos($source, 'verifyVmRecords($dns[\'fqdn\'], $ipAddress)');
-        $provisioning = strpos($source, "'PROVISIONING', 7, 'Create VM'");
+        $provisioning = strpos($source, "'PROVISIONING', 7, 'Clone VM from template'");
         $terraform = strpos($source, '$this->terraformCreate->create($job)');
         $local = strpos($source, '$this->localCreate->process($job)');
 
