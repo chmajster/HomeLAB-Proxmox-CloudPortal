@@ -18,7 +18,7 @@ final class JobController
     public function show(Request $request): Response
     {
         $user = $this->app->auth()->requireUser();
-        $sql = 'SELECT j.id, j.public_id, j.type, j.status, j.virtual_machine_id, j.proxmox_upid, j.result, j.error_message, j.created_at, j.started_at, j.finished_at FROM jobs j WHERE j.public_id = :id';
+        $sql = 'SELECT j.id, j.public_id, j.correlation_id, j.type, j.status, j.virtual_machine_id, j.proxmox_upid, j.attempts, j.max_attempts, j.dead_letter_at, j.result, j.error_message, j.created_at, j.started_at, j.finished_at FROM jobs j WHERE j.public_id = :id';
         $params = ['id' => $request->param('id')];
         if (!$this->app->auth()->isAdmin()) {
             $sql .= ' AND j.user_id = :user';
@@ -52,7 +52,7 @@ final class JobController
     public function index(Request $request): Response
     {
         $user = $this->app->auth()->requireUser();
-        $sql = 'SELECT j.public_id, j.type, j.status, j.virtual_machine_id, j.error_message, j.created_at, j.started_at, j.finished_at,
+        $sql = 'SELECT j.public_id, j.correlation_id, j.type, j.status, j.virtual_machine_id, j.proxmox_upid, j.attempts, j.max_attempts, j.dead_letter_at, j.error_message, j.created_at, j.started_at, j.finished_at,
                        vp.status AS provisioning_status, vp.current_step AS provisioning_step, vp.current_step_name AS provisioning_step_name,
                        vp.hostname, vp.fqdn, vp.ip_address
                 FROM jobs j LEFT JOIN vm_provisioning vp ON vp.job_id=j.id';
