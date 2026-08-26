@@ -18,11 +18,11 @@ final class AnsibleInventoryTowerTest extends TestCase
 
         self::assertStringContainsString('CREATE TABLE IF NOT EXISTS ansible_inventories', $migration);
         self::assertStringContainsString('CREATE TABLE IF NOT EXISTS ansible_inventory_hosts', $migration);
-        self::assertStringContainsString("CURRENT_VERSION = '1.8.0'", $migrationService);
-        self::assertStringContainsString("SCHEMA_VERSION = '1.8.0'", $installer);
+        self::assertStringContainsString("CURRENT_VERSION = '1.9.0'", $migrationService);
+        self::assertStringContainsString("SCHEMA_VERSION = '1.9.0'", $installer);
         self::assertStringContainsString("'ansible_inventories'", $installer);
         self::assertStringContainsString("'ansible_inventory_hosts'", $installer);
-        self::assertStringContainsString("VERSION = '1.8.0'", $application);
+        self::assertStringContainsString("VERSION = '1.9.0'", $application);
     }
 
     public function testAnsibleInventoryApiExposesCrudHostsAndLaunchEndpoints(): void
