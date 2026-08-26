@@ -54,6 +54,8 @@ $assetVersion = static function (string $path) use ($assetRoot): string {
     <script src="<?= htmlspecialchars((string) $basePath, ENT_QUOTES, 'UTF-8') ?>/assets/js/portal-settings-enhancements.js?v=<?= $assetVersion('js/portal-settings-enhancements.js') ?>" defer></script>
   <?php elseif ($page === 'security'): ?>
     <script src="<?= htmlspecialchars((string) $basePath, ENT_QUOTES, 'UTF-8') ?>/assets/js/security.js?v=<?= $assetVersion('js/security.js') ?>" defer></script>
+  <?php elseif ($page === 'activity'): ?>
+    <script src="<?= htmlspecialchars((string) $basePath, ENT_QUOTES, 'UTF-8') ?>/assets/js/activity-hardening.js?v=<?= $assetVersion('js/activity-hardening.js') ?>" defer></script>
   <?php endif; ?>
 </body>
 </html>
