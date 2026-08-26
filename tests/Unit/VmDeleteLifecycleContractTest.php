@@ -31,9 +31,9 @@ final class VmDeleteLifecycleContractTest extends TestCase
     {
         $source = (string) file_get_contents(dirname(__DIR__, 2) . '/app/Services/Provisioning/VmDeleteLifecycleProcessor.php');
 
-        self::assertStringContainsString('deleteRecord((string) $state[\'reverse_zone\'], $ptrId)', $source);
+        self::assertStringContainsString("deleteRecord((string) \$state['reverse_zone'], \$ptrId)", $source);
         self::assertStringContainsString('SET ptr_record_id=NULL', $source);
-        self::assertStringContainsString('deleteRecord((string) $state[\'forward_zone\'], $aId)', $source);
+        self::assertStringContainsString("deleteRecord((string) \$state['forward_zone'], \$aId)", $source);
         self::assertStringContainsString('SET a_record_id=NULL', $source);
         self::assertStringContainsString('DNS client is unavailable; IPAM was retained', $source);
     }
@@ -43,11 +43,11 @@ final class VmDeleteLifecycleContractTest extends TestCase
         $source = (string) file_get_contents(dirname(__DIR__, 2) . '/bin/worker.php');
 
         self::assertStringContainsString('new VmDeleteLifecycleProcessor(', $source);
-        self::assertStringContainsString("(string) $staleJob['type'] === 'vm.delete'", $source);
+        self::assertStringContainsString("(string) \$staleJob['type'] === 'vm.delete'", $source);
         self::assertStringContainsString('fail-closed lifecycle deletion will resume idempotently', $source);
 
-        $deleteRoute = strpos($source, 'if ($deleteLifecycle->supports((string) $job[\'type\']))');
-        $managedRoute = strpos($source, "elseif (($job['payload']['managed_provisioning'] ?? false) === true)");
+        $deleteRoute = strpos($source, "if (\$deleteLifecycle->supports((string) \$job['type']))");
+        $managedRoute = strpos($source, "elseif ((\$job['payload']['managed_provisioning'] ?? false) === true)");
         self::assertNotFalse($deleteRoute);
         self::assertNotFalse($managedRoute);
         self::assertLessThan($managedRoute, $deleteRoute, 'Delete routing must take precedence over managed-create routing.');
