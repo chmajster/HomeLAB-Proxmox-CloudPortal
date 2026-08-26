@@ -53,8 +53,7 @@ final class MfaService
             throw new \RuntimeException('MFA setup does not contain enough recovery codes.');
         }
 
-        $this->pdo->beginTransaction();
-        try {
+        $this->atomic('mfa_enable', function () use ($userId, $secret, $recoveryCodes): void {
             $this->pdo->prepare(
                 'UPDATE users SET mfa_enabled=1,mfa_secret_encrypted=:secret,mfa_enabled_at=CURRENT_TIMESTAMP WHERE id=:id'
             )->execute(['secret' => $this->crypto->encrypt($secret), 'id' => $userId]);
@@ -67,30 +66,17 @@ final class MfaService
                 }
                 $insert->execute(['user' => $userId, 'hash' => password_hash($normalized, PASSWORD_DEFAULT)]);
             }
-            $this->pdo->commit();
-        } catch (\Throwable $exception) {
-            if ($this->pdo->inTransaction()) {
-                $this->pdo->rollBack();
-            }
-            throw $exception;
-        }
+        });
     }
 
     public function disable(int $userId): void
     {
-        $this->pdo->beginTransaction();
-        try {
+        $this->atomic('mfa_disable', function () use ($userId): void {
             $this->pdo->prepare(
                 'UPDATE users SET mfa_enabled=0,mfa_secret_encrypted=NULL,mfa_enabled_at=NULL,session_version=session_version+1 WHERE id=:id'
             )->execute(['id' => $userId]);
             $this->pdo->prepare('DELETE FROM user_mfa_recovery_codes WHERE user_id=:user')->execute(['user' => $userId]);
-            $this->pdo->commit();
-        } catch (\Throwable $exception) {
-            if ($this->pdo->inTransaction()) {
-                $this->pdo->rollBack();
-            }
-            throw $exception;
-        }
+        });
     }
 
     public function enabled(int $userId): bool
@@ -152,28 +138,22 @@ final class MfaService
             return false;
         }
 
-        $this->pdo->beginTransaction();
-        try {
+        return $this->atomic('mfa_recovery', function () use ($userId, $normalized): bool {
             $statement = $this->pdo->prepare(
                 'SELECT id,code_hash FROM user_mfa_recovery_codes WHERE user_id=:user AND used_at IS NULL FOR UPDATE'
             );
             $statement->execute(['user' => $userId]);
             foreach ($statement->fetchAll() as $candidate) {
                 if (password_verify($normalized, (string) $candidate['code_hash'])) {
-                    $this->pdo->prepare('UPDATE user_mfa_recovery_codes SET used_at=CURRENT_TIMESTAMP WHERE id=:id AND used_at IS NULL')
-                        ->execute(['id' => $candidate['id']]);
-                    $this->pdo->commit();
-                    return true;
+                    $update = $this->pdo->prepare(
+                        'UPDATE user_mfa_recovery_codes SET used_at=CURRENT_TIMESTAMP WHERE id=:id AND used_at IS NULL'
+                    );
+                    $update->execute(['id' => $candidate['id']]);
+                    return $update->rowCount() === 1;
                 }
             }
-            $this->pdo->commit();
             return false;
-        } catch (\Throwable $exception) {
-            if ($this->pdo->inTransaction()) {
-                $this->pdo->rollBack();
-            }
-            throw $exception;
-        }
+        });
     }
 
     private function totp(string $secret, int $counter): string
@@ -229,6 +209,38 @@ final class MfaService
             $output .= chr(bindec($chunk));
         }
         return $output;
+    }
+
+    /** @template T @param callable():T $callback @return T */
+    private function atomic(string $savepoint, callable $callback): mixed
+    {
+        $nested = $this->pdo->inTransaction();
+        if ($nested) {
+            $this->pdo->exec('SAVEPOINT ' . $savepoint);
+        } else {
+            $this->pdo->beginTransaction();
+        }
+
+        try {
+            $result = $callback();
+            if ($nested) {
+                $this->pdo->exec('RELEASE SAVEPOINT ' . $savepoint);
+            } else {
+                $this->pdo->commit();
+            }
+            return $result;
+        } catch (\Throwable $exception) {
+            if ($nested && $this->pdo->inTransaction()) {
+                try {
+                    $this->pdo->exec('ROLLBACK TO SAVEPOINT ' . $savepoint);
+                    $this->pdo->exec('RELEASE SAVEPOINT ' . $savepoint);
+                } catch (\Throwable) {
+                }
+            } elseif ($this->pdo->inTransaction()) {
+                $this->pdo->rollBack();
+            }
+            throw $exception;
+        }
     }
 
     private function normalizeRecoveryCode(string $code): string
