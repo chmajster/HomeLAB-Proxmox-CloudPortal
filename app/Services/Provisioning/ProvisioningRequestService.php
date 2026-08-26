@@ -114,7 +114,7 @@ final class ProvisioningRequestService
                 : true;
             $rebootBeforeAnsible = filter_var($input['reboot_before_ansible'] ?? false, FILTER_VALIDATE_BOOL);
             $ansibleExtraVars = $input['ansible_extra_vars'] ?? [];
-            if (!is_array($ansibleExtraVars) || array_is_list($ansibleExtraVars)) {
+            if (!is_array($ansibleExtraVars) || ($ansibleExtraVars !== [] && array_is_list($ansibleExtraVars))) {
                 throw new HttpException(422, 'ansible_extra_vars must be a JSON object.');
             }
             foreach ($ansibleExtraVars as $key => $_) {
