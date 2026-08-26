@@ -16,7 +16,7 @@ use PDO;
 
 final class Application
 {
-    public const VERSION = '1.7.0';
+    public const VERSION = '1.8.0';
     private ?PDO $pdo = null;
     private ?AuthService $auth = null;
     private ?AuditLogger $audit = null;
