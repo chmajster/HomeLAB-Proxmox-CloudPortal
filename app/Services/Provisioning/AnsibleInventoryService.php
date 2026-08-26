@@ -202,21 +202,35 @@ final class AnsibleInventoryService
         if ($alias === '') $alias = (string) $vm['name'];
         $alias = preg_replace('/[^A-Za-z0-9_.-]/', '-', $alias) ?? '';
         if ($alias === '' || mb_strlen($alias) > 120) throw new HttpException(422, 'Invalid Ansible host alias.');
+        $encodedVariables = json_encode($variables, JSON_THROW_ON_ERROR | JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE);
+
+        $existing = $this->pdo->prepare('SELECT id FROM ansible_inventory_hosts WHERE inventory_id=:inventory AND virtual_machine_id=:vm LIMIT 1');
+        $existing->execute(['inventory' => $inventoryId, 'vm' => (int) $vm['id']]);
+        $hostId = $existing->fetchColumn();
         try {
-            $statement = $this->pdo->prepare(
-                'INSERT INTO ansible_inventory_hosts (inventory_id,virtual_machine_id,host_alias,ansible_user,variables) VALUES (:inventory,:vm,:alias,:user,:variables) ON DUPLICATE KEY UPDATE host_alias=VALUES(host_alias),ansible_user=VALUES(ansible_user),variables=VALUES(variables),enabled=1'
-            );
-            $statement->execute([
-                'inventory' => $inventoryId,
-                'vm' => (int) $vm['id'],
-                'alias' => $alias,
-                'user' => $ansibleUser,
-                'variables' => json_encode($variables, JSON_THROW_ON_ERROR | JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE),
-            ]);
+            if ($hostId !== false) {
+                $statement = $this->pdo->prepare('UPDATE ansible_inventory_hosts SET host_alias=:alias,ansible_user=:user,variables=:variables,enabled=1 WHERE id=:id');
+                $statement->execute([
+                    'alias' => $alias,
+                    'user' => $ansibleUser,
+                    'variables' => $encodedVariables,
+                    'id' => (int) $hostId,
+                ]);
+            } else {
+                $statement = $this->pdo->prepare('INSERT INTO ansible_inventory_hosts (inventory_id,virtual_machine_id,host_alias,ansible_user,variables) VALUES (:inventory,:vm,:alias,:user,:variables)');
+                $statement->execute([
+                    'inventory' => $inventoryId,
+                    'vm' => (int) $vm['id'],
+                    'alias' => $alias,
+                    'user' => $ansibleUser,
+                    'variables' => $encodedVariables,
+                ]);
+            }
         } catch (PDOException $exception) {
             if ((int) ($exception->errorInfo[1] ?? 0) === 1062) throw new HttpException(409, 'The host alias is already used in this inventory.');
             throw $exception;
         }
+
         $hosts = $this->hosts($inventoryId);
         foreach ($hosts as $host) if ((int) $host['virtual_machine_id'] === (int) $vm['id']) return $host;
         throw new \RuntimeException('Inventory host could not be saved.');
