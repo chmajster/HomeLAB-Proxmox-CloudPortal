@@ -6,6 +6,7 @@ use CloudPortal\Application;
 use CloudPortal\Controllers\AccountSecurityController;
 use CloudPortal\Controllers\AuthController;
 use CloudPortal\Controllers\ProxmoxPreflightController;
+use CloudPortal\Controllers\ReconciliationController;
 use CloudPortal\Controllers\SystemController;
 use CloudPortal\Http\Router;
 
@@ -14,6 +15,7 @@ return static function (Router $router, Application $app): void {
     $account = new AccountSecurityController($app);
     $system = new SystemController($app);
     $preflight = new ProxmoxPreflightController($app);
+    $reconciliation = new ReconciliationController($app);
 
     $router->add('GET', '/metrics', [$system, 'metrics']);
 
@@ -35,4 +37,7 @@ return static function (Router $router, Application $app): void {
     $router->add('POST', '/api/v1/admin/users/{id}/password-reset-token', [$account, 'adminIssuePasswordReset']);
 
     $router->add('GET', '/api/v1/admin/proxmox/{connectionId}/preflight', [$preflight, 'show']);
+    $router->add('POST', '/api/v1/admin/reconciliation/scan', [$reconciliation, 'scan']);
+    $router->add('GET', '/api/v1/admin/reconciliation/incidents', [$reconciliation, 'incidents']);
+    $router->add('POST', '/api/v1/admin/reconciliation/incidents/{id}', [$reconciliation, 'close']);
 };
