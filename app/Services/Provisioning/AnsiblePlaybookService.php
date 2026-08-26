@@ -33,6 +33,7 @@ final class AnsiblePlaybookService
     {
         $root = realpath($this->playbooksDirectory);
         if ($root === false || !is_dir($root)) return [];
+        $prefix = rtrim($root, DIRECTORY_SEPARATOR) . DIRECTORY_SEPARATOR;
 
         $items = [];
         $iterator = new \RecursiveIteratorIterator(
@@ -43,8 +44,8 @@ final class AnsiblePlaybookService
             $extension = strtolower($file->getExtension());
             if (!in_array($extension, ['yml', 'yaml'], true)) continue;
             $path = $file->getRealPath();
-            if ($path === false) continue;
-            $relative = ltrim(str_replace('\\', '/', substr($path, strlen($root))), '/');
+            if ($path === false || !str_starts_with($path, $prefix)) continue;
+            $relative = str_replace('\\', '/', substr($path, strlen($prefix)));
             if ($relative === '' || str_contains($relative, '..')) continue;
             $items[] = ['id' => $relative, 'name' => $relative];
         }
