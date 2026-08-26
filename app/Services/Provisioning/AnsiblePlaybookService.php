@@ -77,37 +77,121 @@ final class AnsiblePlaybookService
     }
 
     /** @return array{playbook:string,host:string,exit_code:int,output:string} */
-    public function run(string $playbook, string $host, string $user): array
+    public function run(string $playbook, string $host, string $user, array $extraVars = []): array
+    {
+        $result = $this->runInventory($playbook, [[
+            'host_alias' => 'target',
+            'ip_address' => $host,
+            'ansible_user' => $user,
+            'variables' => [],
+        ]], $extraVars);
+        return [
+            'playbook' => $result['playbook'],
+            'host' => $host,
+            'exit_code' => $result['exit_code'],
+            'output' => $result['output'],
+        ];
+    }
+
+    /**
+     * @param list<array<string,mixed>> $hosts
+     * @param array<string,mixed> $extraVars
+     * @return array{playbook:string,hosts:list<string>,exit_code:int,output:string}
+     */
+    public function runInventory(string $playbook, array $hosts, array $extraVars = []): array
     {
         $playbookPath = $this->resolve($playbook);
-        if (filter_var($host, FILTER_VALIDATE_IP) === false) {
-            throw new \RuntimeException('Ansible target IP address is invalid.');
-        }
-        if (preg_match('/^[a-z_][a-z0-9_-]{0,31}$/', $user) !== 1) {
-            throw new \RuntimeException('Ansible target username is invalid.');
-        }
         if (!is_file($this->command) || !is_executable($this->command)) {
             throw new \RuntimeException('ansible-playbook is not installed or executable: ' . $this->command);
         }
         if (!is_file($this->privateKeyPath) || !is_readable($this->privateKeyPath)) {
             throw new \RuntimeException('Ansible controller private key is not configured or readable: ' . $this->privateKeyPath);
         }
+        if ($hosts === []) throw new \RuntimeException('Ansible inventory is empty.');
 
-        $this->waitForSsh($host);
-        $extraVars = json_encode([
-            'cloudportal_target_ip' => $host,
-            'cloudportal_target_user' => $user,
-        ], JSON_UNESCAPED_SLASHES | JSON_THROW_ON_ERROR);
-        $parts = [
-            escapeshellarg($this->command),
-            '-i', escapeshellarg($host . ','),
-            '-u', escapeshellarg($user),
-            '--private-key', escapeshellarg($this->privateKeyPath),
-            '--timeout', '30',
-            '--ssh-common-args', escapeshellarg('-o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -o ConnectTimeout=10'),
-            '--extra-vars', escapeshellarg($extraVars),
-            escapeshellarg($playbookPath),
+        $normalized = [];
+        $aliases = [];
+        foreach ($hosts as $host) {
+            $ip = trim((string) ($host['ip_address'] ?? ''));
+            $user = trim((string) ($host['ansible_user'] ?? ''));
+            $alias = trim((string) ($host['host_alias'] ?? ''));
+            if (filter_var($ip, FILTER_VALIDATE_IP) === false) throw new \RuntimeException('Ansible target IP address is invalid.');
+            if (preg_match('/^[a-z_][a-z0-9_-]{0,31}$/', $user) !== 1) throw new \RuntimeException('Ansible target username is invalid.');
+            if (preg_match('/^[A-Za-z0-9_.-]{1,120}$/', $alias) !== 1) throw new \RuntimeException('Ansible host alias is invalid.');
+            if (isset($aliases[$alias])) throw new \RuntimeException('Ansible inventory contains a duplicate host alias: ' . $alias);
+            $aliases[$alias] = true;
+            $normalized[] = [
+                'host_alias' => $alias,
+                'ip_address' => $ip,
+                'ansible_user' => $user,
+                'variables' => is_array($host['variables'] ?? null) ? $host['variables'] : [],
+            ];
+        }
+        $this->assertVariableMap($extraVars);
+        foreach ($normalized as $host) $this->assertVariableMap($host['variables']);
+
+        foreach (array_values(array_unique(array_column($normalized, 'ip_address'))) as $ip) $this->waitForSsh($ip);
+
+        $inventoryPath = $this->temporaryInventory($normalized);
+        try {
+            $parts = [
+                escapeshellarg($this->command),
+                '-i', escapeshellarg($inventoryPath),
+                '--private-key', escapeshellarg($this->privateKeyPath),
+                '--timeout', '30',
+                '--ssh-common-args', escapeshellarg('-o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -o ConnectTimeout=10'),
+            ];
+            if ($extraVars !== []) {
+                $parts[] = '--extra-vars';
+                $parts[] = escapeshellarg(json_encode($extraVars, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE | JSON_THROW_ON_ERROR));
+            }
+            $parts[] = escapeshellarg($playbookPath);
+            $result = $this->execute($parts);
+        } finally {
+            @unlink($inventoryPath);
+        }
+
+        return [
+            'playbook' => $playbook,
+            'hosts' => array_values(array_column($normalized, 'host_alias')),
+            'exit_code' => $result['exit_code'],
+            'output' => $result['output'],
         ];
+    }
+
+    /** @param list<array<string,mixed>> $hosts */
+    private function temporaryInventory(array $hosts): string
+    {
+        $path = sys_get_temp_dir() . '/algen-ansible-inventory-' . bin2hex(random_bytes(12)) . '.yml';
+        $lines = ['---', 'all:', '  hosts:'];
+        foreach ($hosts as $host) {
+            $lines[] = '    ' . json_encode((string) $host['host_alias'], JSON_THROW_ON_ERROR) . ':';
+            $lines[] = '      ansible_host: ' . json_encode((string) $host['ip_address'], JSON_THROW_ON_ERROR);
+            $lines[] = '      ansible_user: ' . json_encode((string) $host['ansible_user'], JSON_THROW_ON_ERROR);
+            foreach ($host['variables'] as $key => $value) {
+                $lines[] = '      ' . $key . ': ' . json_encode($value, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE | JSON_THROW_ON_ERROR);
+            }
+        }
+        if (file_put_contents($path, implode("\n", $lines) . "\n", LOCK_EX) === false) {
+            throw new \RuntimeException('Could not create temporary Ansible inventory.');
+        }
+        @chmod($path, 0600);
+        return $path;
+    }
+
+    /** @param array<string,mixed> $variables */
+    private function assertVariableMap(array $variables): void
+    {
+        foreach ($variables as $key => $_) {
+            if (!is_string($key) || preg_match('/^[A-Za-z_][A-Za-z0-9_]*$/', $key) !== 1) {
+                throw new \RuntimeException('Ansible variable name is invalid: ' . (string) $key);
+            }
+        }
+    }
+
+    /** @param list<string> $parts @return array{exit_code:int,output:string} */
+    private function execute(array $parts): array
+    {
         $command = implode(' ', [
             'ANSIBLE_HOST_KEY_CHECKING=False',
             'ANSIBLE_LOCAL_TEMP=/tmp/algen-ansible-local',
@@ -148,21 +232,14 @@ final class AnsiblePlaybookService
             fclose($pipes[1]);
             fclose($pipes[2]);
             $closed = proc_close($process);
-            if ($exitCode === null || $exitCode < 0) {
-                $exitCode = $closed >= 0 ? $closed : $exitCode;
-            }
+            if ($exitCode === null || $exitCode < 0) $exitCode = $closed >= 0 ? $closed : $exitCode;
         }
 
         $combined = trim($stdout . ($stderr === '' ? '' : "\n" . $stderr));
         if (($exitCode ?? 1) !== 0) {
             throw new \RuntimeException('Ansible playbook failed with exit code ' . (int) $exitCode . ($combined === '' ? '' : ': ' . mb_substr($combined, -1500)));
         }
-        return [
-            'playbook' => $playbook,
-            'host' => $host,
-            'exit_code' => (int) $exitCode,
-            'output' => mb_substr($combined, -5000),
-        ];
+        return ['exit_code' => (int) $exitCode, 'output' => mb_substr($combined, -10000)];
     }
 
     private function waitForSsh(string $host): void
@@ -182,21 +259,13 @@ final class AnsiblePlaybookService
     private function resolve(string $playbook): string
     {
         $root = realpath($this->playbooksDirectory);
-        if ($root === false || !is_dir($root)) {
-            throw new \RuntimeException('Ansible playbooks directory does not exist: ' . $this->playbooksDirectory);
-        }
+        if ($root === false || !is_dir($root)) throw new \RuntimeException('Ansible playbooks directory does not exist: ' . $this->playbooksDirectory);
         $candidate = realpath($root . DIRECTORY_SEPARATOR . str_replace('/', DIRECTORY_SEPARATOR, $playbook));
-        if ($candidate === false || !is_file($candidate)) {
-            throw new \InvalidArgumentException('Selected Ansible playbook does not exist.');
-        }
+        if ($candidate === false || !is_file($candidate)) throw new \InvalidArgumentException('Selected Ansible playbook does not exist.');
         $prefix = rtrim($root, DIRECTORY_SEPARATOR) . DIRECTORY_SEPARATOR;
-        if (!str_starts_with($candidate, $prefix)) {
-            throw new \InvalidArgumentException('Selected Ansible playbook is outside the configured playbooks directory.');
-        }
+        if (!str_starts_with($candidate, $prefix)) throw new \InvalidArgumentException('Selected Ansible playbook is outside the configured playbooks directory.');
         $extension = strtolower(pathinfo($candidate, PATHINFO_EXTENSION));
-        if (!in_array($extension, ['yml', 'yaml'], true)) {
-            throw new \InvalidArgumentException('Selected Ansible playbook must be a .yml or .yaml file.');
-        }
+        if (!in_array($extension, ['yml', 'yaml'], true)) throw new \InvalidArgumentException('Selected Ansible playbook must be a .yml or .yaml file.');
         return $candidate;
     }
 }
