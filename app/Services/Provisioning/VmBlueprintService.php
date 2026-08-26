@@ -108,7 +108,7 @@ final class VmBlueprintService
         $playbook = trim((string) ($input['ansible_playbook'] ?? ''));
         if ($playbook !== '' && (strlen($playbook) > 500 || str_contains($playbook, '..') || str_starts_with($playbook, '/'))) throw new HttpException(422, 'Invalid Ansible playbook path.');
         $extraVars = $input['ansible_extra_vars'] ?? [];
-        if (!is_array($extraVars) || array_is_list($extraVars)) throw new HttpException(422, 'ansible_extra_vars must be a JSON object.');
+        if (!is_array($extraVars) || ($extraVars !== [] && array_is_list($extraVars))) throw new HttpException(422, 'ansible_extra_vars must be a JSON object.');
         foreach ($extraVars as $key => $_) if (!is_string($key) || preg_match('/^[A-Za-z_][A-Za-z0-9_]*$/', $key) !== 1) throw new HttpException(422, 'Invalid Ansible variable name: ' . (string) $key);
         $this->assertRelations($project, $template, $plan, $network, $storage, $cloudInit);
         return [
