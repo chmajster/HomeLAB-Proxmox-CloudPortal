@@ -10,7 +10,7 @@ $nav = [
 ];
 $adminNav = [
   ['users', $english ? 'Users' : 'Użytkownicy', 'users'], ['infrastructure', $english ? 'Infrastructure' : 'Infrastruktura', 'infrastructure'], ['proxmox', 'Proxmox', 'proxmox'],
-  ['storages', 'Storage', 'storage'], ['plans', $english ? 'Resource plans' : 'Plany zasobów', 'sliders'], ['quotas', 'Quota', 'gauge'], ['audit', 'Audit log', 'audit'], ['settings', $english ? 'Settings' : 'Ustawienia', 'settings'],
+  ['storages', 'Storage', 'storage'], ['plans', $english ? 'Resource plans' : 'Plany zasobów', 'sliders'], ['blueprints', 'VM Blueprints', 'template'], ['quotas', 'Quota', 'gauge'], ['audit', 'Audit log', 'audit'], ['settings', $english ? 'Settings' : 'Ustawienia', 'settings'],
 ];
 ?>
 <div class="portal-layout">
@@ -35,7 +35,7 @@ $adminNav = [
   <main class="portal-main">
     <header class="portal-topbar">
       <button class="icon-button mobile-menu" id="menuButton" aria-label="<?= $english ? 'Open menu' : 'Otwórz menu' ?>" aria-controls="portalSidebar" aria-expanded="false"><?= $icon('menu') ?></button>
-      <div><p class="eyebrow mb-0">Cloud Portal</p><h1 class="page-title mb-0" id="pageTitle">Ładowanie…</h1></div>
+      <div><p class="eyebrow mb-0">Cloud Portal</p><h1 class="page-title mb-0" id="pageTitle"><?= $page === 'blueprints' ? 'VM Blueprints' : 'Ładowanie…' ?></h1></div>
       <div class="ms-auto d-flex gap-2">
         <button class="icon-button" id="themeButton" aria-label="<?= $english ? 'Change theme' : 'Zmień motyw' ?>"><?= $icon('theme') ?></button>
         <a class="btn btn-primary d-none d-sm-inline-flex" href="<?= $escapedBasePath ?>/create-vm"><?= $icon('plus') ?><?= $english ? 'Create VM' : 'Utwórz VM' ?></a>
