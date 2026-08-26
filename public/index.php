@@ -95,6 +95,7 @@ try {
     }
     $router = new Router();
     (require $root . '/routes/api.php')($router, $app);
+    (require $root . '/routes/security.php')($router, $app);
     (require $root . '/routes/web.php')($router, $app);
     $router->dispatch($request)->send();
 } catch (HttpException $exception) {

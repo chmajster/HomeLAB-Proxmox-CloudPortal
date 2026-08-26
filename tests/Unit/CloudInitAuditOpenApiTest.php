@@ -60,6 +60,7 @@ final class CloudInitAuditOpenApiTest extends TestCase
         $root = dirname(__DIR__, 2);
         $migration = (string) file_get_contents($root . '/database/migrations/1.5.0.sql');
         $migrationService = (string) file_get_contents($root . '/app/Database/MigrationService.php');
+        $securityMigration = (string) file_get_contents($root . '/database/migrations/1.6.0.sql');
 
         self::assertStringContainsString('CREATE TABLE IF NOT EXISTS user_ssh_keys', $migration);
         self::assertStringContainsString('CREATE TABLE IF NOT EXISTS cloud_init_profiles', $migration);
@@ -67,7 +68,8 @@ final class CloudInitAuditOpenApiTest extends TestCase
         self::assertStringContainsString('cloud_init_profile_id', $migration);
         self::assertStringContainsString('virtual_machine_id', $migration);
         self::assertStringContainsString('proxmox_upid', $migration);
-        self::assertStringContainsString("CURRENT_VERSION = '1.5.0'", $migrationService);
+        self::assertStringContainsString('CREATE TABLE IF NOT EXISTS user_mfa_recovery_codes', $securityMigration);
+        self::assertStringContainsString("CURRENT_VERSION = '1.6.0'", $migrationService);
     }
 
     public function testApiAndPortalExposeSelectedFeatures(): void

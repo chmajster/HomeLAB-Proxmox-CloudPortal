@@ -75,4 +75,10 @@ final class RateLimiter
             ]);
         }
     }
+
+    public function clearFailuresForIdentity(string $identity): void
+    {
+        $this->pdo->prepare('DELETE FROM login_attempts WHERE identity_hash=:identity AND successful=0')
+            ->execute(['identity' => hash('sha256', mb_strtolower(trim($identity)))]);
+    }
 }
