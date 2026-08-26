@@ -33,6 +33,9 @@ $assetVersion = static function (string $path) use ($assetRoot): string {
     <script src="<?= htmlspecialchars((string) $basePath, ENT_QUOTES, 'UTF-8') ?>/assets/js/app.js?v=<?= $assetVersion('js/app.js') ?>" defer></script>
     <script src="<?= htmlspecialchars((string) $basePath, ENT_QUOTES, 'UTF-8') ?>/assets/js/managed-provisioning.js?v=<?= $assetVersion('js/managed-provisioning.js') ?>" defer></script>
   <?php endif; ?>
+  <?php if ($page === 'create-vm'): ?>
+    <script src="<?= htmlspecialchars((string) $basePath, ENT_QUOTES, 'UTF-8') ?>/assets/js/ansible-create-vm.js?v=<?= $assetVersion('js/ansible-create-vm.js') ?>" defer></script>
+  <?php endif; ?>
   <script src="<?= htmlspecialchars((string) $basePath, ENT_QUOTES, 'UTF-8') ?>/assets/js/cloud-features.js?v=<?= $assetVersion('js/cloud-features.js') ?>" defer></script>
   <script src="<?= htmlspecialchars((string) $basePath, ENT_QUOTES, 'UTF-8') ?>/assets/js/portal-enhancements.js?v=<?= $assetVersion('js/portal-enhancements.js') ?>" defer></script>
   <script src="<?= htmlspecialchars((string) $basePath, ENT_QUOTES, 'UTF-8') ?>/assets/js/admin-resource-navigation.js?v=<?= $assetVersion('js/admin-resource-navigation.js') ?>" defer></script>

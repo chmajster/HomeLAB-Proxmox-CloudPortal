@@ -42,6 +42,7 @@ jobs:
       - run: composer audit
       - run: composer lint
       - run: bash -n update.sh
+      - run: bash -n bin/setup-ansible-controller.sh
       - run: composer test
       - run: composer test:smoke
 
@@ -97,6 +98,7 @@ jobs:
       - run: node --check public/assets/js/openapi-docs.js
       - run: node --check public/assets/js/security.js
       - run: node --check public/assets/js/activity-hardening.js
+      - run: node --check public/assets/js/ansible-create-vm.js
       - run: npx playwright install --with-deps chromium
       - run: php -S 127.0.0.1:8765 tests/http-router.php > /tmp/cloudportal-http.log 2>&1 &
       - run: npx playwright test

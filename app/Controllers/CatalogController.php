@@ -8,6 +8,7 @@ use CloudPortal\Application;
 use CloudPortal\Http\HttpException;
 use CloudPortal\Http\Request;
 use CloudPortal\Http\Response;
+use CloudPortal\Services\Provisioning\AnsiblePlaybookService;
 
 final class CatalogController
 {
@@ -38,6 +39,7 @@ final class CatalogController
             'templates' => [],
             'networks' => [],
             'storages' => [],
+            'playbooks' => AnsiblePlaybookService::fromConfig($this->app->config, $this->app->root)->playbooks(),
         ];
         if ($projectId > 0) {
             $templates = $pdo->prepare(
