@@ -107,7 +107,12 @@ final class AnsiblePlaybookService
             '--extra-vars', escapeshellarg($extraVars),
             escapeshellarg($playbookPath),
         ];
-        $command = 'ANSIBLE_HOST_KEY_CHECKING=False ' . implode(' ', $parts);
+        $command = implode(' ', [
+            'ANSIBLE_HOST_KEY_CHECKING=False',
+            'ANSIBLE_LOCAL_TEMP=/tmp/algen-ansible-local',
+            'ANSIBLE_SSH_CONTROL_PATH_DIR=/tmp/algen-ansible-cp',
+            implode(' ', $parts),
+        ]);
         $descriptors = [1 => ['pipe', 'w'], 2 => ['pipe', 'w']];
         $process = proc_open($command, $descriptors, $pipes);
         if (!is_resource($process)) throw new \RuntimeException('Could not start ansible-playbook.');
@@ -142,7 +147,9 @@ final class AnsiblePlaybookService
             fclose($pipes[1]);
             fclose($pipes[2]);
             $closed = proc_close($process);
-            if ($exitCode === null && $closed >= 0) $exitCode = $closed;
+            if ($exitCode === null || $exitCode < 0) {
+                $exitCode = $closed >= 0 ? $closed : $exitCode;
+            }
         }
 
         $combined = trim($stdout . ($stderr === '' ? '' : "\n" . $stderr));
