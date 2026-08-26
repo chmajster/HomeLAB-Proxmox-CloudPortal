@@ -20,11 +20,11 @@ final class PortalController
         $user = $this->app->auth()->user();
         if ($user === null) return Response::redirect($this->app->url('/login'));
         $page = trim($request->param('page'), '/');
-        $allowed = ['dashboard', 'vms', 'create-vm', 'projects', 'networks', 'templates', 'cloud-init', 'ssh-keys', 'ansible', 'activity', 'security', 'users', 'infrastructure', 'proxmox', 'storages', 'plans', 'quotas', 'audit', 'settings'];
+        $allowed = ['dashboard', 'vms', 'create-vm', 'projects', 'networks', 'templates', 'cloud-init', 'ssh-keys', 'ansible', 'activity', 'security', 'users', 'infrastructure', 'proxmox', 'storages', 'plans', 'quotas', 'audit', 'settings', 'blueprints'];
         if (!in_array($page, $allowed, true)) {
             return Response::redirect($this->app->url('/dashboard'));
         }
-        $adminOnly = ['users', 'infrastructure', 'proxmox', 'storages', 'plans', 'quotas', 'audit', 'settings'];
+        $adminOnly = ['users', 'infrastructure', 'proxmox', 'storages', 'plans', 'quotas', 'audit', 'settings', 'blueprints'];
         if (in_array($page, $adminOnly, true)) {
             $this->app->auth()->requirePermission('admin.access');
         }
