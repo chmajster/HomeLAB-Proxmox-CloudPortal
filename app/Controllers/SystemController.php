@@ -9,6 +9,7 @@ use CloudPortal\Http\HttpException;
 use CloudPortal\Http\Request;
 use CloudPortal\Http\Response;
 use CloudPortal\Services\Observability\HealthService;
+use CloudPortal\Services\Observability\PrometheusMetricsService;
 use CloudPortal\Services\Placement\PlacementService;
 use CloudPortal\Services\Provisioning\JobRepository;
 
@@ -28,6 +29,15 @@ final class SystemController
     {
         $report = (new HealthService($this->app->pdo()))->report();
         return Response::json(['status' => $report['ready'] ? 'ready' : 'not_ready', 'schema_current' => $report['schema_current'], 'worker_healthy' => $report['worker_healthy']], $report['ready'] ? 200 : 503);
+    }
+
+    public function metrics(Request $request): Response
+    {
+        $body = (new PrometheusMetricsService($this->app->pdo()))->render();
+        return new Response($body, 200, [
+            'Content-Type' => 'text/plain; version=0.0.4; charset=utf-8',
+            'Cache-Control' => 'no-store',
+        ]);
     }
 
     public function adminHealth(Request $request): Response
