@@ -1,0 +1,120 @@
+name: Release
+
+on:
+  workflow_dispatch:
+  push:
+    tags:
+      - 'v*'
+
+permissions:
+  contents: write
+
+jobs:
+  verify-and-package:
+    runs-on: ubuntu-latest
+    services:
+      mariadb:
+        image: mariadb:11.4
+        env:
+          MARIADB_ROOT_PASSWORD: root
+          MARIADB_DATABASE: cloud_portal_test
+          MARIADB_USER: portal
+          MARIADB_PASSWORD: portal
+        ports:
+          - 3306:3306
+        options: >-
+          --health-cmd="healthcheck.sh --connect --innodb_initialized"
+          --health-interval=5s
+          --health-timeout=5s
+          --health-retries=20
+    env:
+      TEST_DB_DSN: mysql:host=127.0.0.1;port=3306;dbname=cloud_portal_test;charset=utf8mb4
+      TEST_DB_USER: portal
+      TEST_DB_PASSWORD: portal
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: shivammathur/setup-php@v2
+        with:
+          php-version: '8.3'
+          extensions: curl, json, mbstring, pdo_mysql, sodium
+          coverage: none
+
+      - name: Install development dependencies
+        run: composer install --no-interaction --prefer-dist
+
+      - name: Verify release source
+        run: |
+          composer validate --strict
+          composer audit
+          composer lint
+          composer test
+          composer test:smoke
+          bash -n update.sh
+          php -l bin/portal-backup.php
+
+      - name: Build self-contained ZIP
+        shell: bash
+        run: |
+          set -euo pipefail
+          VERSION="${GITHUB_REF_NAME:-snapshot}"
+          if [[ "$VERSION" == refs/* || -z "$VERSION" ]]; then
+            VERSION="snapshot-${GITHUB_SHA::12}"
+          fi
+          PACKAGE="Algen-Proxmox-CloudPortal-${VERSION}.zip"
+          STAGE="${RUNNER_TEMP}/cloudportal-release"
+          rm -rf "$STAGE"
+          mkdir -p "$STAGE"
+          rsync -a ./ "$STAGE/" \
+            --exclude '.git/' \
+            --exclude '.github/' \
+            --exclude 'vendor/' \
+            --exclude 'node_modules/' \
+            --exclude 'tests/' \
+            --exclude 'storage/logs/*' \
+            --exclude 'storage/cache/*' \
+            --exclude 'config/runtime.php' \
+            --exclude 'storage/installed.lock' \
+            --exclude 'install.json'
+          (cd "$STAGE" && zip -qr "$GITHUB_WORKSPACE/$PACKAGE" .)
+          sha256sum "$PACKAGE" > "$PACKAGE.sha256"
+          echo "PACKAGE=$PACKAGE" >> "$GITHUB_ENV"
+
+      - name: Verify packaged artifact
+        shell: bash
+        run: |
+          set -euo pipefail
+          sha256sum -c "$PACKAGE.sha256"
+          CHECK="${RUNNER_TEMP}/release-check"
+          rm -rf "$CHECK"
+          mkdir -p "$CHECK"
+          unzip -q "$PACKAGE" -d "$CHECK"
+          test -f "$CHECK/index.php"
+          test -f "$CHECK/autoload.php"
+          test -f "$CHECK/database/schema.sql"
+          test -f "$CHECK/bin/worker.php"
+          test -f "$CHECK/bin/portal-backup.php"
+          test ! -e "$CHECK/config/runtime.php"
+          test ! -e "$CHECK/storage/installed.lock"
+          php -l "$CHECK/index.php"
+          php -l "$CHECK/bin/worker.php"
+          php -l "$CHECK/bin/portal-backup.php"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: cloudportal-release
+          path: |
+            ${{ env.PACKAGE }}
+            ${{ env.PACKAGE }}.sha256
+          if-no-files-found: error
+
+      - name: Publish GitHub release for tags
+        if: startsWith(github.ref, 'refs/tags/v')
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create "$GITHUB_REF_NAME" \
+            "$PACKAGE" "$PACKAGE.sha256" \
+            --verify-tag \
+            --generate-notes \
+            --title "Algen Proxmox Cloud Portal $GITHUB_REF_NAME"

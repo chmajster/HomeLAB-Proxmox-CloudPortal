@@ -14,6 +14,7 @@ use CloudPortal\Services\Provisioning\ManagedCreateProcessor;
 use CloudPortal\Services\Provisioning\PlacedCreateProcessor;
 use CloudPortal\Services\Provisioning\ProxmoxProvisioner;
 use CloudPortal\Services\Provisioning\TerraformProvisioner;
+use CloudPortal\Services\Provisioning\VmDeleteLifecycleProcessor;
 use CloudPortal\Services\Provisioning\VmIdentityJobProcessor;
 use CloudPortal\Services\Proxmox\ProxmoxClientFactory;
 
@@ -42,6 +43,25 @@ $terraformCreate = new TerraformProvisioner(
     $jobs,
     (string) $app->config->get('provisioning.terraform_command', '/usr/local/sbin/algen-terraform-provisioner'),
     (int) $app->config->get('provisioning.terraform_timeout', 1200),
+);
+
+$lifecycleDnsClient = null;
+try {
+    $lifecycleDnsSettings = new DnsSettingsService($database->pdo(), $app->crypto(), $app->config);
+    if ($lifecycleDnsSettings->configured()) {
+        $lifecycleDnsClient = $lifecycleDnsSettings->client();
+    }
+} catch (Throwable $exception) {
+    // Do not block the worker globally. Unmanaged deletes remain possible, while
+    // managed deletes retain IPAM and retry until DNS configuration is healthy.
+    error_log('Lifecycle DNS configuration could not be initialized: ' . $exception->getMessage());
+}
+$deleteLifecycle = new VmDeleteLifecycleProcessor(
+    $database,
+    $clients,
+    $jobs,
+    $app->audit(),
+    $lifecycleDnsClient,
 );
 
 $managedProcessor = static function () use ($database, $clients, $jobs, $app, $provisioner, $placedCreate, $terraformCreate): ?ManagedCreateProcessor {
@@ -77,6 +97,8 @@ foreach ($jobs->staleRunning() as $staleJob) {
             && !empty($staleJob['virtual_machine_id']);
         if ($managedWithCreatedVm) {
             $jobs->requeueInterrupted((int) $staleJob['id'], 'Worker interrupted after VM creation; managed provisioning will resume from the persisted VM.');
+        } elseif ((string) $staleJob['type'] === 'vm.delete') {
+            $jobs->requeueInterrupted((int) $staleJob['id'], 'Worker interrupted during VM deletion; fail-closed lifecycle deletion will resume idempotently.');
         } elseif ((string) $staleJob['type'] === 'vm.create.placed' || $advanced->supports((string) $staleJob['type']) || $identity->supports((string) $staleJob['type'])) {
             $jobs->fail((int) $staleJob['id'], 'Worker interrupted; operation was returned to the retry queue.');
         } else {
@@ -130,7 +152,9 @@ do {
         continue;
     }
     try {
-        if (($job['payload']['managed_provisioning'] ?? false) === true) {
+        if ($deleteLifecycle->supports((string) $job['type'])) {
+            $deleteLifecycle->process($job);
+        } elseif (($job['payload']['managed_provisioning'] ?? false) === true) {
             $processor = null;
             $processorError = null;
             try {
