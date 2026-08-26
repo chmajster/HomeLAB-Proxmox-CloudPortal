@@ -69,17 +69,29 @@ final class VmDeleteLifecycleProcessor
                 return;
             }
 
+            $this->database->pdo()->prepare(
+                'UPDATE virtual_machines SET delete_requested_at=COALESCE(delete_requested_at,CURRENT_TIMESTAMP),deleted_by=COALESCE(deleted_by,:user) WHERE id=:id'
+            )->execute([
+                'user' => $job['user_id'] === null ? null : (int) $job['user_id'],
+                'id' => $vmId,
+            ]);
+
             if ((string) $vm['status'] !== 'deleted') {
                 $this->ensureRemoteVmAbsent($jobId, $vm);
+            } else {
+                $this->markRemoteDeleted($vmId);
             }
 
             $this->cleanupManagedDns($vmId);
+            $this->database->pdo()->prepare('UPDATE virtual_machines SET dns_released_at=COALESCE(dns_released_at,CURRENT_TIMESTAMP) WHERE id=:id')
+                ->execute(['id' => $vmId]);
 
             $this->database->transaction(function (PDO $pdo) use ($vmId): void {
                 (new IPAMService($pdo))->releaseVm($vmId);
                 $pdo->prepare(
                     "UPDATE virtual_machines
-                     SET status='deleted', deleted_at=COALESCE(deleted_at,CURRENT_TIMESTAMP), last_error=NULL
+                     SET status='deleted', ip_released_at=COALESCE(ip_released_at,CURRENT_TIMESTAMP),
+                         deleted_at=COALESCE(deleted_at,CURRENT_TIMESTAMP), last_error=NULL
                      WHERE id=:id"
                 )->execute(['id' => $vmId]);
             });
@@ -89,6 +101,7 @@ final class VmDeleteLifecycleProcessor
                 'status' => 'deleted',
                 'remote_absence_verified' => true,
                 'dns_cleanup_verified' => true,
+                'ipam_release_verified' => true,
             ];
             $this->jobs->complete($jobId, $result);
             $this->audit->log(
@@ -98,7 +111,7 @@ final class VmDeleteLifecycleProcessor
                 'success',
                 'virtual_machine',
                 (string) $vmId,
-                $result,
+                [...$result, 'job_id' => $jobId],
             );
         } catch (Throwable $exception) {
             $message = mb_substr($exception->getMessage(), 0, 2000);
@@ -117,7 +130,7 @@ final class VmDeleteLifecycleProcessor
                 'failure',
                 'virtual_machine',
                 (string) $vmId,
-                ['error' => $message, 'resources_retained' => true],
+                ['error' => $message, 'resources_retained' => true, 'job_id' => $jobId],
             );
         }
     }
@@ -141,6 +154,7 @@ final class VmDeleteLifecycleProcessor
             $current = $client->get($path . '/status/current');
         } catch (ProxmoxException $exception) {
             if ($exception->httpStatus === 404) {
+                $this->markRemoteDeleted((int) $vm['id']);
                 return;
             }
             throw $exception;
@@ -164,6 +178,13 @@ final class VmDeleteLifecycleProcessor
                 'Proxmox delete task completed but VM absence could not be verified; DNS and IPAM were retained.'
             );
         }
+        $this->markRemoteDeleted((int) $vm['id']);
+    }
+
+    private function markRemoteDeleted(int $vmId): void
+    {
+        $this->database->pdo()->prepare('UPDATE virtual_machines SET proxmox_deleted_at=COALESCE(proxmox_deleted_at,CURRENT_TIMESTAMP) WHERE id=:id')
+            ->execute(['id' => $vmId]);
     }
 
     private function remoteVmIsAbsent(ProxmoxClientInterface $client, string $path): bool
