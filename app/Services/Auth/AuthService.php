@@ -17,11 +17,15 @@ final class AuthService
     private ?array $user = null;
     /** @var list<string>|null */
     private ?array $permissions = null;
+    private ?int $apiTokenId = null;
+    /** @var list<string>|null */
+    private ?array $apiTokenScopes = null;
 
     public function __construct(
         private readonly PDO $pdo,
         private readonly RateLimiter $rateLimiter,
         private readonly AuditLogger $audit,
+        private readonly int $sessionLifetime = 7200,
     ) {
     }
 
@@ -64,6 +68,41 @@ final class AuthService
         }
 
         return $this->establishSession($user, $ip, false);
+    }
+
+    public function authenticateBearer(?string $authorization, string $ip): void
+    {
+        $authorization = trim((string) $authorization);
+        if ($authorization === '') return;
+        if (preg_match('/^Bearer\s+(.+)$/i', $authorization, $matches) !== 1) {
+            throw new HttpException(401, 'Invalid Authorization header.');
+        }
+        $row = (new ApiTokenService($this->pdo))->authenticate(trim($matches[1]), $ip);
+        if ($row === null) {
+            $this->audit->log(null, $ip, 'auth.api_token', 'failure');
+            throw new HttpException(401, 'Invalid, revoked or expired API token.');
+        }
+        $this->apiTokenId = (int) $row['api_token_id'];
+        $this->apiTokenScopes = array_values(array_map('strval', $row['api_token_scopes'] ?? []));
+        unset($row['api_token_id'], $row['api_token_scopes']);
+        $this->user = $this->safeUser($row);
+        $this->permissions = null;
+    }
+
+    public function apiTokenId(): ?int
+    {
+        return $this->apiTokenId;
+    }
+
+    public function isApiToken(): bool
+    {
+        return $this->apiTokenId !== null;
+    }
+
+    /** @return list<string> */
+    public function apiTokenScopes(): array
+    {
+        return $this->apiTokenScopes ?? [];
     }
 
     /** @return array<string,mixed>|null */
@@ -140,18 +179,25 @@ final class AuthService
     {
         $userId = $this->id();
         if ($userId !== null) {
-            $this->audit->log($userId, $ip, 'auth.logout', 'success');
+            $this->audit->log($userId, $ip, 'auth.logout', 'success', null, null, ['api_token' => $this->isApiToken()]);
+            if (!$this->isApiToken()) {
+                (new SessionService($this->pdo))->revokeCurrent($userId);
+            }
         }
-        $_SESSION = [];
-        if (ini_get('session.use_cookies')) {
-            $params = session_get_cookie_params();
-            setcookie(session_name(), '', time() - 42000, $params['path'], $params['domain'], $params['secure'], $params['httponly']);
-        }
-        if (session_status() === PHP_SESSION_ACTIVE) {
-            session_destroy();
+        if (!$this->isApiToken()) {
+            $_SESSION = [];
+            if (ini_get('session.use_cookies')) {
+                $params = session_get_cookie_params();
+                setcookie(session_name(), '', time() - 42000, $params['path'], $params['domain'], $params['secure'], $params['httponly']);
+            }
+            if (session_status() === PHP_SESSION_ACTIVE) {
+                session_destroy();
+            }
         }
         $this->user = null;
         $this->permissions = null;
+        $this->apiTokenId = null;
+        $this->apiTokenScopes = null;
     }
 
     /** @return array<string,mixed>|null */
@@ -171,8 +217,20 @@ final class AuthService
         $statement->execute(['id' => (int) $id]);
         $user = $statement->fetch();
         if (!is_array($user) || $user['status'] !== 'active' || (int) ($user['session_version'] ?? 0) !== (int) ($_SESSION['session_version'] ?? 0)) {
-            unset($_SESSION['user_id'], $_SESSION['session_version'], $_SESSION['authenticated_at'], $_SESSION['mfa_authenticated_at']);
+            $this->clearAuthenticatedSession();
             return null;
+        }
+
+        $sessions = new SessionService($this->pdo);
+        $valid = $sessions->validate((int) $user['id']);
+        if ($valid === false) {
+            $this->clearAuthenticatedSession();
+            return null;
+        }
+        if ($valid === null) {
+            $sessions->register((int) $user['id'], $this->currentIp(), $this->currentUserAgent(), $this->sessionLifetime);
+        } else {
+            $sessions->touch((int) $user['id'], $this->sessionLifetime);
         }
         return $this->user = $user;
     }
@@ -190,7 +248,9 @@ final class AuthService
 
     public function isAdmin(): bool
     {
-        return ($this->user()['role_slug'] ?? null) === 'admin';
+        $user = $this->user();
+        if (($user['role_slug'] ?? null) !== 'admin') return false;
+        return !$this->isApiToken() || in_array('admin.access', $this->apiTokenScopes(), true);
     }
 
     public function can(string $permission): bool
@@ -206,7 +266,8 @@ final class AuthService
             $statement->execute(['role_id' => $user['role_id']]);
             $this->permissions = array_map('strval', $statement->fetchAll(PDO::FETCH_COLUMN));
         }
-        return in_array($permission, $this->permissions, true);
+        if (!in_array($permission, $this->permissions, true)) return false;
+        return !$this->isApiToken() || in_array($permission, $this->apiTokenScopes(), true);
     }
 
     public function requirePermission(string $permission): void
@@ -238,6 +299,12 @@ final class AuthService
         if ($mfa) {
             $_SESSION['mfa_authenticated_at'] = time();
         }
+        (new SessionService($this->pdo))->register(
+            (int) $user['id'],
+            $ip,
+            $this->currentUserAgent(),
+            $this->sessionLifetime,
+        );
         $this->pdo->prepare('UPDATE users SET last_login_at = CURRENT_TIMESTAMP WHERE id = :id')->execute(['id' => $user['id']]);
         $this->audit->log((int) $user['id'], $ip, $mfa ? 'auth.mfa' : 'auth.login', 'success');
         $safe = $this->safeUser($user);
@@ -249,7 +316,7 @@ final class AuthService
     /** @param array<string,mixed> $user @return array<string,mixed> */
     private function safeUser(array $user): array
     {
-        unset($user['password_hash'], $user['mfa_secret_encrypted']);
+        unset($user['password_hash'], $user['mfa_secret_encrypted'], $user['token_hash']);
         return $user;
     }
 
@@ -268,6 +335,16 @@ final class AuthService
     private function mfaIdentity(int $userId): string
     {
         return 'mfa:user:' . $userId;
+    }
+
+    private function currentIp(): string
+    {
+        return filter_var($_SERVER['REMOTE_ADDR'] ?? '', FILTER_VALIDATE_IP) ?: '0.0.0.0';
+    }
+
+    private function currentUserAgent(): string
+    {
+        return mb_substr((string) ($_SERVER['HTTP_USER_AGENT'] ?? ''), 0, 500);
     }
 
     private static function dummyPasswordHash(): string

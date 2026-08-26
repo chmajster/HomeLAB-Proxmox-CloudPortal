@@ -32,6 +32,9 @@ final class AccountSecurityService
         $this->pdo->prepare(
             'UPDATE users SET password_hash=:hash,session_version=session_version+1,updated_at=CURRENT_TIMESTAMP WHERE id=:id'
         )->execute(['hash' => AuthService::hashPassword($newPassword), 'id' => $userId]);
+        $this->pdo->prepare(
+            'UPDATE user_sessions SET revoked_at=COALESCE(revoked_at,CURRENT_TIMESTAMP) WHERE user_id=:user AND revoked_at IS NULL'
+        )->execute(['user' => $userId]);
     }
 
     public function assertPasswordPolicy(string $password): void

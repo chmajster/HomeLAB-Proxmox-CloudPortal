@@ -75,11 +75,11 @@ final class SafeUpdaterTest extends TestCase
     {
         $application = file_get_contents(dirname(__DIR__, 2) . '/app/Application.php');
         $migration = file_get_contents(dirname(__DIR__, 2) . '/app/Database/MigrationService.php');
-        $migrationFile = dirname(__DIR__, 2) . '/database/migrations/1.6.0.sql';
+        $migrationFile = dirname(__DIR__, 2) . '/database/migrations/1.7.0.sql';
         self::assertIsString($application);
         self::assertIsString($migration);
         self::assertFileExists($migrationFile);
-        self::assertStringContainsString("public const VERSION = '1.6.0'", $application);
-        self::assertStringContainsString("public const CURRENT_VERSION = '1.6.0'", $migration);
+        self::assertStringContainsString("public const VERSION = '1.7.0'", $application);
+        self::assertStringContainsString("public const CURRENT_VERSION = '1.7.0'", $migration);
     }
 }

@@ -13,5 +13,6 @@
       <div class="mb-4"><label class="form-label" for="password"><?= $english ? 'Password' : 'Hasło' ?></label><input class="form-control form-control-lg" id="password" name="password" type="password" autocomplete="current-password" required></div>
       <button class="btn btn-primary btn-lg w-100" type="submit"><?= $english ? 'Sign in' : 'Zaloguj się' ?></button>
     </form>
+    <a class="btn btn-link w-100 mt-3" href="<?= htmlspecialchars((string) $basePath, ENT_QUOTES, 'UTF-8') ?>/forgot-password"><?= $english ? 'Forgot password?' : 'Nie pamiętasz hasła?' ?></a>
   </div>
 </div>

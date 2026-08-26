@@ -23,9 +23,10 @@ final class JobRepository
     public function enqueue(string $type, ?int $userId, ?int $projectId, ?int $connectionId, array $payload, ?string $reservationKey = null, ?int $vmId = null, int $maxAttempts = 3): string
     {
         $publicId = Uuid::v4();
-        $statement = $this->pdo->prepare('INSERT INTO jobs (public_id,type,user_id,project_id,virtual_machine_id,connection_id,reservation_key,payload,max_attempts) VALUES (:public_id,:type,:user,:project,:vm,:connection,:reservation,:payload,:max_attempts)');
+        $correlationId = $this->currentCorrelationId() ?? Uuid::v4();
+        $statement = $this->pdo->prepare('INSERT INTO jobs (public_id,correlation_id,type,user_id,project_id,virtual_machine_id,connection_id,reservation_key,payload,max_attempts) VALUES (:public_id,:correlation_id,:type,:user,:project,:vm,:connection,:reservation,:payload,:max_attempts)');
         $statement->execute([
-            'public_id' => $publicId, 'type' => $type, 'user' => $userId, 'project' => $projectId, 'vm' => $vmId,
+            'public_id' => $publicId, 'correlation_id' => $correlationId, 'type' => $type, 'user' => $userId, 'project' => $projectId, 'vm' => $vmId,
             'connection' => $connectionId, 'reservation' => $reservationKey,
             'payload' => json_encode($payload, JSON_THROW_ON_ERROR | JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE),
             'max_attempts' => max(1, min(20, $maxAttempts)),
@@ -54,6 +55,8 @@ final class JobRepository
             $job['status'] = 'running';
             $job['attempts'] = (int) $job['attempts'] + 1;
             $job['payload'] = json_decode((string) $job['payload'], true, 64, JSON_THROW_ON_ERROR);
+            $correlationId = $this->normalizeCorrelationId($job['correlation_id'] ?? null);
+            if ($correlationId !== null) $_SERVER['CLOUD_PORTAL_CORRELATION_ID'] = $correlationId;
             return $job;
         } catch (\Throwable $exception) {
             if ($this->pdo->inTransaction()) $this->pdo->rollBack();
@@ -207,5 +210,16 @@ final class JobRepository
         $statement->execute(['id' => $jobId]);
         $status = $statement->fetchColumn();
         return is_string($status) ? $status : null;
+    }
+
+    private function currentCorrelationId(): ?string
+    {
+        return $this->normalizeCorrelationId($_SERVER['CLOUD_PORTAL_CORRELATION_ID'] ?? null);
+    }
+
+    private function normalizeCorrelationId(mixed $value): ?string
+    {
+        $value = strtolower(trim((string) ($value ?? '')));
+        return preg_match('/^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/', $value) === 1 ? $value : null;
     }
 }

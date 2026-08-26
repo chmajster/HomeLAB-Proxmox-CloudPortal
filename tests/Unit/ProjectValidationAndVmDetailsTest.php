@@ -103,7 +103,7 @@ final class ProjectValidationAndVmDetailsTest extends TestCase
 
         self::assertStringContainsString("'/vms/{id}'", $routes);
         self::assertStringContainsString("'/infrastructure/vms/{connectionId}/{node}/{vmid}'", $routes);
-        self::assertStringContainsString("!in_array(\$page, ['vm-details', 'project-details', 'admin-resource-details', 'settings'], true)", $layout);
+        self::assertStringContainsString("!in_array(\$page, ['vm-details', 'project-details', 'admin-resource-details', 'settings', 'security'], true)", $layout);
         self::assertStringContainsString('vm-details.js', $layout);
         self::assertStringContainsString("event.stopImmediatePropagation()", $enhancements);
         self::assertStringContainsString("location.assign(appUrl(`/vms/\${id}`))", $enhancements);

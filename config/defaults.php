@@ -31,6 +31,7 @@ return [
         'login_attempts' => 5,
         'login_window_seconds' => 900,
         'lockout_seconds' => 900,
+        'password_reset_mail_from' => getenv('PASSWORD_RESET_MAIL_FROM') ?: 'no-reply@localhost',
     ],
     'uploads' => [
         'max_iso_bytes' => (int) (getenv('MAX_ISO_UPLOAD_BYTES') ?: 17179869184),

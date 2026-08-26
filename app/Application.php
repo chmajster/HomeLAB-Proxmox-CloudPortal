@@ -16,7 +16,7 @@ use PDO;
 
 final class Application
 {
-    public const VERSION = '1.6.0';
+    public const VERSION = '1.7.0';
     private ?PDO $pdo = null;
     private ?AuthService $auth = null;
     private ?AuditLogger $audit = null;
@@ -81,6 +81,7 @@ final class Application
                 (int) $this->config->get('security.lockout_seconds', 900),
             ),
             $this->audit(),
+            (int) $this->config->get('session.lifetime', 7200),
         );
     }
 

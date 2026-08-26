@@ -29,7 +29,7 @@ $assetVersion = static function (string $path) use ($assetRoot): string {
   <script src="<?= htmlspecialchars((string) $basePath, ENT_QUOTES, 'UTF-8') ?>/assets/js/modules/api.js?v=<?= $assetVersion('js/modules/api.js') ?>" defer></script>
   <script src="<?= htmlspecialchars((string) $basePath, ENT_QUOTES, 'UTF-8') ?>/assets/js/modules/jobs.js?v=<?= $assetVersion('js/modules/jobs.js') ?>" defer></script>
   <script src="<?= htmlspecialchars((string) $basePath, ENT_QUOTES, 'UTF-8') ?>/assets/js/modules/system.js?v=<?= $assetVersion('js/modules/system.js') ?>" defer></script>
-  <?php if (!in_array($page, ['vm-details', 'project-details', 'admin-resource-details', 'settings'], true)): ?>
+  <?php if (!in_array($page, ['vm-details', 'project-details', 'admin-resource-details', 'settings', 'security'], true)): ?>
     <script src="<?= htmlspecialchars((string) $basePath, ENT_QUOTES, 'UTF-8') ?>/assets/js/app.js?v=<?= $assetVersion('js/app.js') ?>" defer></script>
     <script src="<?= htmlspecialchars((string) $basePath, ENT_QUOTES, 'UTF-8') ?>/assets/js/managed-provisioning.js?v=<?= $assetVersion('js/managed-provisioning.js') ?>" defer></script>
   <?php endif; ?>
@@ -52,6 +52,10 @@ $assetVersion = static function (string $path) use ($assetRoot): string {
   <?php elseif ($page === 'settings'): ?>
     <script src="<?= htmlspecialchars((string) $basePath, ENT_QUOTES, 'UTF-8') ?>/assets/js/settings.js?v=<?= $assetVersion('js/settings.js') ?>" defer></script>
     <script src="<?= htmlspecialchars((string) $basePath, ENT_QUOTES, 'UTF-8') ?>/assets/js/portal-settings-enhancements.js?v=<?= $assetVersion('js/portal-settings-enhancements.js') ?>" defer></script>
+  <?php elseif ($page === 'security'): ?>
+    <script src="<?= htmlspecialchars((string) $basePath, ENT_QUOTES, 'UTF-8') ?>/assets/js/security.js?v=<?= $assetVersion('js/security.js') ?>" defer></script>
+  <?php elseif ($page === 'activity'): ?>
+    <script src="<?= htmlspecialchars((string) $basePath, ENT_QUOTES, 'UTF-8') ?>/assets/js/activity-hardening.js?v=<?= $assetVersion('js/activity-hardening.js') ?>" defer></script>
   <?php endif; ?>
 </body>
 </html>

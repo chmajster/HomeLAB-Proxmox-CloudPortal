@@ -61,6 +61,7 @@ final class CloudInitAuditOpenApiTest extends TestCase
         $migration = (string) file_get_contents($root . '/database/migrations/1.5.0.sql');
         $migrationService = (string) file_get_contents($root . '/app/Database/MigrationService.php');
         $securityMigration = (string) file_get_contents($root . '/database/migrations/1.6.0.sql');
+        $platformMigration = (string) file_get_contents($root . '/database/migrations/1.7.0.sql');
 
         self::assertStringContainsString('CREATE TABLE IF NOT EXISTS user_ssh_keys', $migration);
         self::assertStringContainsString('CREATE TABLE IF NOT EXISTS cloud_init_profiles', $migration);
@@ -69,7 +70,10 @@ final class CloudInitAuditOpenApiTest extends TestCase
         self::assertStringContainsString('virtual_machine_id', $migration);
         self::assertStringContainsString('proxmox_upid', $migration);
         self::assertStringContainsString('CREATE TABLE IF NOT EXISTS user_mfa_recovery_codes', $securityMigration);
-        self::assertStringContainsString("CURRENT_VERSION = '1.6.0'", $migrationService);
+        self::assertStringContainsString('CREATE TABLE IF NOT EXISTS api_tokens', $platformMigration);
+        self::assertStringContainsString('CREATE TABLE IF NOT EXISTS api_idempotency_keys', $platformMigration);
+        self::assertStringContainsString('CREATE TABLE IF NOT EXISTS reconciliation_incidents', $platformMigration);
+        self::assertStringContainsString("CURRENT_VERSION = '1.7.0'", $migrationService);
     }
 
     public function testApiAndPortalExposeSelectedFeatures(): void
@@ -86,6 +90,7 @@ final class CloudInitAuditOpenApiTest extends TestCase
         self::assertStringContainsString("'/api/docs'", $web);
         self::assertStringContainsString("'cloud-init'", $portal);
         self::assertStringContainsString("'ssh-keys'", $portal);
+        self::assertStringContainsString("'security'", $portal);
         self::assertStringContainsString('cloud_init_profile_id', $ui);
         self::assertStringContainsString('ssh_key_ids', $ui);
     }

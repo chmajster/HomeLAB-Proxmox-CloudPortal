@@ -9,6 +9,8 @@ use CloudPortal\Http\Response;
 use CloudPortal\Http\Router;
 use CloudPortal\Installer\Services\JsonInstaller;
 use CloudPortal\Security\Headers;
+use CloudPortal\Services\Http\IdempotencyService;
+use CloudPortal\Support\Uuid;
 
 $root = dirname(__DIR__);
 $maintenancePath = $root . '/storage/maintenance.json';
@@ -72,8 +74,18 @@ if (isset($_SESSION['last_activity']) && time() - (int) $_SESSION['last_activity
 }
 $_SESSION['last_activity'] = time();
 
+$idempotencyService = null;
+$idempotencyContext = null;
+
 try {
     $request = Request::capture($app->basePath());
+    $providedCorrelation = strtolower(trim((string) $request->header('x-correlation-id', '')));
+    $correlationId = preg_match('/^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/', $providedCorrelation) === 1
+        ? $providedCorrelation
+        : Uuid::v4();
+    $_SERVER['CLOUD_PORTAL_CORRELATION_ID'] = $correlationId;
+    header('X-Correlation-ID: ' . $correlationId);
+
     $jsonInstallPath = $root . '/install.json';
     if (!$app->installed() && in_array($request->path, ['/install', '/install/'], true) && is_file($jsonInstallPath)) {
         try {
@@ -93,18 +105,41 @@ try {
     if ($app->installed() && str_starts_with($request->path, '/install') && $request->path !== '/install/finish') {
         throw new HttpException(403, 'Application already installed.');
     }
+
+    if ($app->installed() && str_starts_with($request->path, '/api/')) {
+        $app->auth()->authenticateBearer($request->header('authorization'), $request->ip());
+        if (trim((string) $request->header('idempotency-key', '')) !== '') {
+            $idempotencyService = new IdempotencyService($app->pdo());
+            $begin = $idempotencyService->begin($request, $app->auth()->id(), $app->auth()->apiTokenId());
+            if ($begin instanceof Response) {
+                $begin->send();
+            }
+            $idempotencyContext = is_array($begin) ? $begin : null;
+        }
+    }
+
     $router = new Router();
     (require $root . '/routes/api.php')($router, $app);
     (require $root . '/routes/security.php')($router, $app);
     (require $root . '/routes/web.php')($router, $app);
-    $router->dispatch($request)->send();
+    $response = $router->dispatch($request);
+    if ($idempotencyService instanceof IdempotencyService) {
+        $idempotencyService->complete($idempotencyContext, $response);
+    }
+    $response->send();
 } catch (HttpException $exception) {
+    if ($idempotencyService instanceof IdempotencyService) {
+        $idempotencyService->release($idempotencyContext);
+    }
     $jsonRequest = isset($request) ? $request->expectsJson() : str_starts_with((string) parse_url((string) ($_SERVER['REQUEST_URI'] ?? '/'), PHP_URL_PATH), '/api/');
     if ($jsonRequest) {
         Response::json(['error' => ['message' => $exception->getMessage(), ...$exception->details]], $exception->status)->send();
     }
     Response::html($app->view->render('errors/http', ['status' => $exception->status, 'message' => $exception->getMessage()], 'layouts/guest'), $exception->status)->send();
 } catch (Throwable $exception) {
+    if ($idempotencyService instanceof IdempotencyService) {
+        $idempotencyService->release($idempotencyContext);
+    }
     error_log($exception->__toString());
     $message = $app->config->get('app.debug', false) ? $exception->getMessage() : 'An unexpected error occurred.';
     $jsonRequest = isset($request) ? $request->expectsJson() : str_starts_with((string) parse_url((string) ($_SERVER['REQUEST_URI'] ?? '/'), PHP_URL_PATH), '/api/');
