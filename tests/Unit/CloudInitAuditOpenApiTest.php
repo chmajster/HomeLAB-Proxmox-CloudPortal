@@ -73,7 +73,7 @@ final class CloudInitAuditOpenApiTest extends TestCase
         self::assertStringContainsString('CREATE TABLE IF NOT EXISTS api_tokens', $platformMigration);
         self::assertStringContainsString('CREATE TABLE IF NOT EXISTS api_idempotency_keys', $platformMigration);
         self::assertStringContainsString('CREATE TABLE IF NOT EXISTS reconciliation_incidents', $platformMigration);
-        self::assertStringContainsString("CURRENT_VERSION = '1.8.0'", $migrationService);
+        self::assertStringContainsString("CURRENT_VERSION = '1.9.0'", $migrationService);
     }
 
     public function testApiAndPortalExposeSelectedFeatures(): void
