@@ -9,7 +9,7 @@ use PDOException;
 
 final class MigrationService
 {
-    public const CURRENT_VERSION = '1.6.0';
+    public const CURRENT_VERSION = '1.7.0';
 
     public function __construct(private readonly PDO $pdo, private readonly string $directory)
     {
@@ -73,7 +73,11 @@ final class MigrationService
                 $this->pdo->exec($statement);
             } catch (PDOException $exception) {
                 $driverCode = isset($exception->errorInfo[1]) ? (int) $exception->errorInfo[1] : 0;
-                if ($driverCode === 1060) {
+                // 1060 = duplicate column, 1061 = duplicate key/index. Migrations
+                // use idempotent CREATE TABLE statements and one DDL mutation per
+                // statement, so these errors mean an interrupted migration can
+                // safely continue from the next statement.
+                if (in_array($driverCode, [1060, 1061], true)) {
                     continue;
                 }
 
