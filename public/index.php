@@ -119,8 +119,8 @@ try {
     }
 
     $router = new Router();
-    (require $root . '/routes/api.php')($router, $app);
     (require $root . '/routes/blueprints.php')($router, $app);
+    (require $root . '/routes/api.php')($router, $app);
     (require $root . '/routes/security.php')($router, $app);
     (require $root . '/routes/web.php')($router, $app);
     $response = $router->dispatch($request);
