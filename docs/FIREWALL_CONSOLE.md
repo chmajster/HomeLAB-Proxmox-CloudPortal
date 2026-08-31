@@ -2,14 +2,15 @@
 
 ## Firewall manager
 
-Cloud Portal exposes Proxmox Firewall at two levels:
+Cloud Portal exposes Proxmox Firewall at three levels:
 
-- a VM firewall panel on every managed VM details page,
+- a VM firewall panel on every managed QEMU VM details page,
+- an administrator LXC firewall panel for existing Proxmox containers selected by node and CTID,
 - an administrator page at `/firewall` for cluster aliases, IPSets and security groups.
 
-Managed VM mutations require the existing `vm.modify` permission and ownership checks. Live Proxmox VM and cluster-level changes require `admin.access`. Every mutation is CSRF protected and recorded in the audit log.
+Managed VM mutations require the existing `vm.modify` permission and ownership checks. Live Proxmox VM, LXC and cluster-level changes require `admin.access`. Every mutation is CSRF protected and recorded in the audit log.
 
-The VM panel supports:
+The QEMU VM and LXC panels support:
 
 - firewall enable/disable,
 - IN/OUT default policy,
@@ -21,13 +22,13 @@ The VM panel supports:
 - protocol, source/destination ports, macro and interface,
 - per-rule enable state and comments.
 
-The administrator page supports:
+The administrator page additionally supports:
 
 - aliases,
 - IPSets and IPSet entries including `nomatch`,
 - security groups and their rules.
 
-Cloud Portal does not maintain a shadow copy of these firewall objects. Reads and writes use the Proxmox REST API so the portal reflects changes made directly in Proxmox as well.
+Cloud Portal does not maintain a shadow copy of these firewall objects. Reads and writes use the Proxmox REST API so the portal reflects changes made directly in Proxmox as well. QEMU uses `/nodes/{node}/qemu/{vmid}/firewall/*`; LXC uses the corresponding `/nodes/{node}/lxc/{ctid}/firewall/*` endpoints and shares the same Cloud Portal validation logic.
 
 The Proxmox API token must have the ACLs required by Proxmox for the firewall objects it is expected to manage. Use a dedicated token and grant only the required scope.
 
@@ -44,7 +45,7 @@ The flow is:
 5. Apache upgrades `/console/ws/...` to the local console gateway.
 6. `bin/console-gateway.php` decrypts the short-lived token, authenticates the upstream Proxmox WebSocket with the server-side API token and tunnels WebSocket frames in both directions.
 
-Serial-only VMs continue to use the existing external console fallback.
+Serial-only VMs continue to use the existing external console fallback. LXC console transport is intentionally not mapped to noVNC because Proxmox LXC consoles use a terminal-oriented transport; this PR's LXC scope is firewall management.
 
 ## Apache modules
 
@@ -92,4 +93,5 @@ The gateway honors the `verify_ssl` setting of the selected Proxmox connection. 
 - the WebSocket listener binds to loopback by default,
 - portal VM console creation uses the existing `vm.operate` permission and ownership boundary,
 - live Proxmox console creation is administrator-only,
+- live LXC firewall management is administrator-only,
 - console creation and firewall changes are audited.
