@@ -18,7 +18,16 @@ final class Router
     {
         $allowedMethods = [];
         foreach ($this->routes as $route) {
-            $regex = preg_replace_callback('/\{([a-zA-Z_][a-zA-Z0-9_]*)\}/', static fn (array $m): string => '(?P<' . $m[1] . '>[A-Za-z0-9._:-]+)', $route['pattern']);
+            $regex = preg_replace_callback(
+                '/\{([a-zA-Z_][a-zA-Z0-9_]*)\*\}/',
+                static fn (array $m): string => '(?P<' . $m[1] . '>[A-Za-z0-9._~%\/-]+)',
+                $route['pattern'],
+            );
+            $regex = preg_replace_callback(
+                '/\{([a-zA-Z_][a-zA-Z0-9_]*)\}/',
+                static fn (array $m): string => '(?P<' . $m[1] . '>[A-Za-z0-9._:-]+)',
+                (string) $regex,
+            );
             if (preg_match('#^' . $regex . '$#D', $request->path, $matches) !== 1) {
                 continue;
             }
