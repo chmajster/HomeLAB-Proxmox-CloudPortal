@@ -30,6 +30,7 @@ final class AnsibleInventoryTowerTest extends TestCase
         $root = dirname(__DIR__, 2);
         $routes = (string) file_get_contents($root . '/routes/api.php');
         $controller = (string) file_get_contents($root . '/app/Controllers/AnsibleController.php');
+        $vmController = (string) file_get_contents($root . '/app/Controllers/VmController.php');
 
         foreach ([
             '/api/v1/ansible/playbooks',
@@ -49,6 +50,7 @@ final class AnsibleInventoryTowerTest extends TestCase
         self::assertStringContainsString("'vm.ansible'", $controller);
         self::assertStringContainsString("'extra_vars'", $controller);
         self::assertStringContainsString("'limit_vm_id'", $controller);
+        self::assertStringContainsString('vm.project_id', $vmController);
     }
 
     public function testWorkerSupportsInventoryJobsAndRealInventoryFiles(): void
@@ -63,6 +65,8 @@ final class AnsibleInventoryTowerTest extends TestCase
         self::assertStringContainsString('runInventory(', $processor);
         self::assertStringContainsString('runInventory(', $runner);
         self::assertStringContainsString('temporaryInventory(', $runner);
+        self::assertStringContainsString('waitForInventorySsh(', $runner);
+        self::assertStringContainsString("str_starts_with(strtolower(\$key), 'ansible_')", $runner);
         self::assertStringContainsString("'--extra-vars'", $runner);
         self::assertStringContainsString("'ansible.inventory'", $jobs);
         self::assertStringContainsString('ansibleProcessor->supports', $worker);
@@ -74,12 +78,14 @@ final class AnsibleInventoryTowerTest extends TestCase
         $portalController = (string) file_get_contents($root . '/app/Controllers/PortalController.php');
         $portal = (string) file_get_contents($root . '/resources/views/pages/portal.php');
         $layout = (string) file_get_contents($root . '/resources/views/layouts/app.php');
+        $shell = (string) file_get_contents($root . '/public/assets/js/ansible-shell.js');
         $ui = (string) file_get_contents($root . '/public/assets/js/ansible-tower.js');
 
         self::assertStringContainsString("'ansible'", $portalController);
         self::assertStringContainsString("['ansible', 'Ansible'", $portal);
         self::assertStringContainsString('ansible-shell.js', $layout);
         self::assertStringContainsString('ansible-tower.js', $layout);
+        self::assertStringContainsString("['ansible', 'blueprints']", $shell);
         self::assertStringContainsString('createInventoryForm', $ui);
         self::assertStringContainsString('addHostForm', $ui);
         self::assertStringContainsString('launchInventoryForm', $ui);

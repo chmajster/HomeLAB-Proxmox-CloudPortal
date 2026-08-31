@@ -79,10 +79,10 @@ final class AnsiblePlaybookService
     /** @return array{playbook:string,host:string,exit_code:int,output:string} */
     public function run(string $playbook, string $host, string $user, array $extraVars = []): array
     {
-        $extraVars = array_replace([
+        $extraVars = array_replace($extraVars, [
             'cloudportal_target_ip' => $host,
             'cloudportal_target_user' => $user,
-        ], $extraVars);
+        ]);
         $result = $this->runInventory($playbook, [[
             'host_alias' => 'target',
             'ip_address' => $host,
@@ -137,7 +137,7 @@ final class AnsiblePlaybookService
         $this->assertVariableMap($extraVars);
         foreach ($normalized as $host) $this->assertVariableMap($host['variables']);
 
-        foreach (array_values(array_unique(array_column($normalized, 'ip_address'))) as $ip) $this->waitForSsh($ip);
+        $this->waitForInventorySsh(array_values(array_unique(array_column($normalized, 'ip_address'))));
 
         $inventoryPath = $this->temporaryInventory($normalized);
         try {
@@ -193,6 +193,38 @@ final class AnsiblePlaybookService
             if (!is_string($key) || preg_match('/^[A-Za-z_][A-Za-z0-9_]*$/', $key) !== 1) {
                 throw new \RuntimeException('Ansible variable name is invalid: ' . (string) $key);
             }
+            if (str_starts_with(strtolower($key), 'ansible_')) {
+                throw new \RuntimeException('Ansible connection and control variables are reserved: ' . $key);
+            }
+        }
+    }
+
+    /** @param list<string> $hosts */
+    private function waitForInventorySsh(array $hosts): void
+    {
+        $pending = array_fill_keys($hosts, true);
+        if ($pending === []) return;
+
+        $timeout = min(300, max(30, intdiv(max(30, $this->timeout), 2)));
+        $deadline = microtime(true) + $timeout;
+        while ($pending !== [] && microtime(true) < $deadline) {
+            foreach (array_keys($pending) as $host) {
+                $remaining = $deadline - microtime(true);
+                if ($remaining <= 0) break;
+                $connectTimeout = max(0.2, min(2.0, $remaining));
+                $errno = 0;
+                $error = '';
+                $socket = @fsockopen($host, 22, $errno, $error, $connectTimeout);
+                if (is_resource($socket)) {
+                    fclose($socket);
+                    unset($pending[$host]);
+                }
+            }
+            if ($pending !== [] && microtime(true) < $deadline) usleep(500000);
+        }
+
+        if ($pending !== []) {
+            throw new \RuntimeException('Timed out waiting for SSH on inventory hosts: ' . implode(', ', array_keys($pending)) . '.');
         }
     }
 
@@ -247,20 +279,6 @@ final class AnsiblePlaybookService
             throw new \RuntimeException('Ansible playbook failed with exit code ' . (int) $exitCode . ($combined === '' ? '' : ': ' . mb_substr($combined, -1500)));
         }
         return ['exit_code' => (int) $exitCode, 'output' => mb_substr($combined, -10000)];
-    }
-
-    private function waitForSsh(string $host): void
-    {
-        $deadline = time() + min(300, max(30, intdiv(max(30, $this->timeout), 2)));
-        do {
-            $socket = @fsockopen($host, 22, $errno, $error, 5.0);
-            if (is_resource($socket)) {
-                fclose($socket);
-                return;
-            }
-            sleep(5);
-        } while (time() < $deadline);
-        throw new \RuntimeException('Timed out waiting for SSH on ' . $host . ':22.');
     }
 
     private function resolve(string $playbook): string

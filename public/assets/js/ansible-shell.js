@@ -1,6 +1,6 @@
 (() => {
   'use strict';
-  if (document.body?.dataset.page !== 'ansible') return;
+  if (!['ansible', 'blueprints'].includes(document.body?.dataset.page || '')) return;
   const body = document.body;
   const basePath = body.dataset.basePath || '';
   const request = window.CloudPortal?.api?.request;

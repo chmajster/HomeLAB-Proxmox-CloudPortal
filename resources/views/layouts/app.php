@@ -43,6 +43,7 @@ $assetVersion = static function (string $path) use ($assetRoot): string {
     <script src="<?= htmlspecialchars((string) $basePath, ENT_QUOTES, 'UTF-8') ?>/assets/js/ansible-shell.js?v=<?= $assetVersion('js/ansible-shell.js') ?>" defer></script>
     <script src="<?= htmlspecialchars((string) $basePath, ENT_QUOTES, 'UTF-8') ?>/assets/js/ansible-tower.js?v=<?= $assetVersion('js/ansible-tower.js') ?>" defer></script>
   <?php elseif ($page === 'blueprints'): ?>
+    <script src="<?= htmlspecialchars((string) $basePath, ENT_QUOTES, 'UTF-8') ?>/assets/js/ansible-shell.js?v=<?= $assetVersion('js/ansible-shell.js') ?>" defer></script>
     <script src="<?= htmlspecialchars((string) $basePath, ENT_QUOTES, 'UTF-8') ?>/assets/js/blueprint-admin.js?v=<?= $assetVersion('js/blueprint-admin.js') ?>" defer></script>
   <?php endif; ?>
   <script src="<?= htmlspecialchars((string) $basePath, ENT_QUOTES, 'UTF-8') ?>/assets/js/cloud-features.js?v=<?= $assetVersion('js/cloud-features.js') ?>" defer></script>
