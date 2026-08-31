@@ -1,6 +1,6 @@
 {
   "name": "algen/proxmox-cloud-portal",
-  "description": "Self-service IaaS cloud portal for Proxmox VE",
+  "description": "Private Cloud Management Portal and self-service IaaS control plane for Proxmox VE",
   "type": "project",
   "license": "proprietary",
   "require": {
