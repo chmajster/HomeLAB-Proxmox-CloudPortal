@@ -99,6 +99,10 @@ jobs:
       - run: node --check public/assets/js/security.js
       - run: node --check public/assets/js/activity-hardening.js
       - run: node --check public/assets/js/ansible-create-vm.js
+      - run: node --check public/assets/js/ansible-shell.js
+      - run: node --check public/assets/js/ansible-tower.js
+      - run: node --check public/assets/js/blueprint-create-vm.js
+      - run: node --check public/assets/js/blueprint-admin.js
       - run: node --check public/assets/js/console.js
       - run: node --check public/assets/js/console-vm-detail-bridge.js
       - run: node --check public/assets/js/firewall.js

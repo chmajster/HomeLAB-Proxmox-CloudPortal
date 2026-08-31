@@ -46,6 +46,8 @@ final class ManagedCreateProcessor
         $jobId = (int) $job['id'];
         $vmId = 0;
         try {
+            $payload = is_array($job['payload'] ?? null) ? $job['payload'] : [];
+            $blueprintId = (int) ($payload['blueprint_id'] ?? 0);
             $provisioning = $state->forJob($jobId);
             $hostname = (string) $provisioning['hostname'];
             $ipAddress = (string) $provisioning['ip_address'];
@@ -73,9 +75,9 @@ final class ManagedCreateProcessor
                 throw new \RuntimeException('Provisioning job disappeared before VM creation.');
             }
 
-            $state->transition($jobId, 'PROVISIONING', 7, 'Create VM');
+            $state->transition($jobId, 'PROVISIONING', 7, 'Clone VM from template');
             if ($vmId <= 0) {
-                if ($this->terraformCreate instanceof TerraformProvisioner) {
+                if ($blueprintId <= 0 && $this->terraformCreate instanceof TerraformProvisioner) {
                     $created = $this->terraformCreate->create($job);
                     $vmId = (int) ($created['virtual_machine_id'] ?? 0);
                 } else {
@@ -98,11 +100,16 @@ final class ManagedCreateProcessor
                     $this->cleanupPreVmFailure($jobId, $job, $message);
                     return;
                 }
-                $state->step($jobId, 7, 'Create VM', 'VM database ID ' . $vmId);
+                $state->step($jobId, 7, 'Clone VM from template', 'VM database ID ' . $vmId);
             } else {
-                $state->step($jobId, 7, 'Create VM', 'VM database ID ' . $vmId . ' already exists; provisioning resumed');
+                $state->step($jobId, 7, 'Clone VM from template', 'VM database ID ' . $vmId . ' already exists; provisioning resumed');
             }
             $state->creating($jobId, $vmId);
+
+            if ($blueprintId > 0) {
+                $this->database->pdo()->prepare('UPDATE virtual_machines SET blueprint_id=:blueprint WHERE id=:id')
+                    ->execute(['blueprint' => $blueprintId, 'id' => $vmId]);
+            }
 
             $vm = $this->vm($vmId);
             $client = $this->clients->forConnection((int) $vm['connection_id']);
@@ -119,17 +126,40 @@ final class ManagedCreateProcessor
             $this->waitForGuestAgent($client, $path);
             $state->step($jobId, 9, 'VM starts', 'QEMU guest agent is responding');
 
-            $state->transition($jobId, 'BOOTSTRAPPING', 10, 'vm-setup.sh');
-            $this->execGuest($client, $path, $this->setupCommand, 'vm-setup.sh');
-            $state->step($jobId, 10, 'vm-setup.sh', 'completed');
+            $hardeningCommand = trim((string) ($payload['initial_hardening_command'] ?? $this->setupCommand));
+            if ($hardeningCommand !== '') {
+                $state->transition($jobId, 'BOOTSTRAPPING', 10, 'Initial hardening');
+                $this->execGuest($client, $path, $hardeningCommand, 'Initial hardening');
+                $state->step($jobId, 10, 'Initial hardening', 'completed');
+            } else {
+                $state->step($jobId, 10, 'Initial hardening', 'skipped');
+            }
 
-            $state->transition($jobId, 'PUPPET_ENROLLMENT', 11, 'Puppet enrollment');
-            $this->execGuest($client, $path, $this->puppetCommand, 'Puppet');
-            $state->step($jobId, 11, 'Puppet enrollment', 'completed');
+            $runPuppet = array_key_exists('run_puppet', $payload) ? (bool) $payload['run_puppet'] : true;
+            if ($runPuppet) {
+                $state->transition($jobId, 'PUPPET_ENROLLMENT', 11, 'Puppet enrollment');
+                $this->execGuest($client, $path, $this->puppetCommand, 'Puppet');
+                $state->step($jobId, 11, 'Puppet enrollment', 'completed');
+            } else {
+                $state->step($jobId, 11, 'Puppet enrollment', 'skipped by blueprint');
+            }
 
-            $state->transition($jobId, 'CONFIGURING', 12, 'Final configuration');
-            $state->step($jobId, 12, 'Final configuration', 'guest bootstrap and Puppet run completed');
-            $state->ready($jobId);
+            $playbook = trim((string) ($payload['ansible_playbook'] ?? ''));
+            $rebootBeforeAnsible = !empty($payload['reboot_before_ansible']) && $playbook !== '';
+            if ($rebootBeforeAnsible) {
+                $state->transition($jobId, 'CONFIGURING', 12, 'Reboot before Ansible');
+                $upid = $this->requireUpid($client->post($path . '/status/reboot'));
+                $client->waitForTask((string) $vm['node_name'], $upid, 900);
+                sleep(3);
+                $this->waitForGuestAgent($client, $path);
+                $state->step($jobId, 12, 'Reboot before Ansible', 'VM rebooted and guest agent is responding');
+            }
+
+            $state->transition($jobId, 'CONFIGURING', 13, $playbook === '' ? 'Final configuration' : 'Waiting for Ansible');
+            $state->step($jobId, 13, $playbook === '' ? 'Final configuration' : 'Waiting for Ansible', $playbook === '' ? 'No Ansible playbook selected' : 'Ansible job will be queued automatically');
+            if ($playbook === '') {
+                $state->ready($jobId, 13, 'READY');
+            }
             $ready = $state->forJob($jobId);
             $latest = $this->jobs->find((string) $job['public_id']);
             $result = is_array($latest['result'] ?? null) ? $latest['result'] : (is_array($final['result'] ?? null) ? $final['result'] : []);
@@ -137,20 +167,24 @@ final class ManagedCreateProcessor
             $result['hostname'] = (string) $ready['hostname'];
             $result['fqdn'] = (string) $ready['fqdn'];
             $result['ip_address'] = (string) $ready['ip_address'];
-            $result['provisioning_status'] = 'READY';
+            $result['blueprint_id'] = $blueprintId > 0 ? $blueprintId : null;
+            $result['provisioning_driver'] = $blueprintId > 0 ? 'proxmox-api' : ($this->terraformCreate instanceof TerraformProvisioner ? 'terraform' : 'proxmox-api');
+            $result['provisioning_status'] = $playbook === '' ? 'READY' : 'WAITING_FOR_ANSIBLE';
             $this->jobs->complete($jobId, $result);
             $this->audit->log(
                 $job['user_id'] === null ? null : (int) $job['user_id'],
                 '127.0.0.1',
-                'vm.provisioning.ready',
+                $playbook === '' ? 'vm.provisioning.ready' : 'vm.provisioning.waiting_ansible',
                 'success',
                 'virtual_machine',
                 (string) $vmId,
-                ['hostname' => $ready['hostname'], 'fqdn' => $ready['fqdn'], 'ip_address' => $ready['ip_address']],
+                ['hostname' => $ready['hostname'], 'fqdn' => $ready['fqdn'], 'ip_address' => $ready['ip_address'], 'blueprint_id' => $blueprintId ?: null, 'driver' => $blueprintId > 0 ? 'proxmox-api' : null],
             );
         } catch (Throwable $exception) {
             $message = $exception->getMessage();
-            if ($vmId > 0 && $this->terraformCreate instanceof TerraformProvisioner) {
+            $payload = is_array($job['payload'] ?? null) ? $job['payload'] : [];
+            $blueprintId = (int) ($payload['blueprint_id'] ?? 0);
+            if ($vmId > 0 && $blueprintId <= 0 && $this->terraformCreate instanceof TerraformProvisioner) {
                 try {
                     $state->rollback($jobId, 'Provisioning failed after VM creation; Terraform rollback started.');
                     if ($this->terraformCreate->destroyForRollback($job, $vmId)) {

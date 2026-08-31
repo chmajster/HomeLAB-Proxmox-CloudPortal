@@ -105,6 +105,29 @@ final class ProvisioningRequestService
                 $ansiblePlaybook = null;
             }
 
+            $hardeningCommand = trim((string) ($input['initial_hardening_command'] ?? ''));
+            if ($hardeningCommand !== '' && (strlen($hardeningCommand) > 1000 || preg_match('/[\r\n\0]/', $hardeningCommand))) {
+                throw new HttpException(422, 'Invalid initial hardening command.');
+            }
+            $runPuppet = array_key_exists('run_puppet', $input)
+                ? filter_var($input['run_puppet'], FILTER_VALIDATE_BOOL)
+                : true;
+            $rebootBeforeAnsible = filter_var($input['reboot_before_ansible'] ?? false, FILTER_VALIDATE_BOOL);
+            $ansibleExtraVars = $input['ansible_extra_vars'] ?? [];
+            if (!is_array($ansibleExtraVars) || ($ansibleExtraVars !== [] && array_is_list($ansibleExtraVars))) {
+                throw new HttpException(422, 'ansible_extra_vars must be a JSON object.');
+            }
+            foreach ($ansibleExtraVars as $key => $_) {
+                if (!is_string($key) || preg_match('/^[A-Za-z_][A-Za-z0-9_]*$/', $key) !== 1) {
+                    throw new HttpException(422, 'Invalid Ansible variable name: ' . (string) $key);
+                }
+            }
+            $blueprintValue = $input['blueprint_id'] ?? null;
+            $blueprintId = $blueprintValue === null || $blueprintValue === '' ? null : filter_var($blueprintValue, FILTER_VALIDATE_INT, ['options' => ['min_range' => 1]]);
+            if ($blueprintValue !== null && $blueprintValue !== '' && $blueprintId === false) {
+                throw new HttpException(422, 'Invalid blueprint_id.');
+            }
+
             $publicKeys = array_values(array_unique($publicKeys));
             $sshKeyPayload = implode("\n", $publicKeys);
 
@@ -138,6 +161,7 @@ final class ProvisioningRequestService
                 'name' => $name,
                 'owner_user_id' => $ownerId,
                 'project_id' => $projectId,
+                'blueprint_id' => $blueprintId === false ? null : $blueprintId,
                 'template_id' => (int) $catalog['template_id'],
                 'template_vmid' => (int) $catalog['template_vmid'],
                 'source_vmid' => (int) $catalog['template_vmid'],
@@ -167,7 +191,11 @@ final class ProvisioningRequestService
                 'cicustom_vendor' => $snippetVolume,
                 'cloud_init_vendor_sha256' => $vendorSha256,
                 'managed_provisioning' => $managed,
+                'initial_hardening_command' => $hardeningCommand === '' ? null : $hardeningCommand,
+                'run_puppet' => $runPuppet,
+                'reboot_before_ansible' => $rebootBeforeAnsible,
                 'ansible_playbook' => $ansiblePlaybook,
+                'ansible_extra_vars' => $ansibleExtraVars,
                 'start_after_create' => $managed ? false : ($ansiblePlaybook !== null || !isset($input['start_after_create']) || filter_var($input['start_after_create'], FILTER_VALIDATE_BOOL)),
             ];
             $type = $targetNode === $sourceNode ? 'vm.create' : 'vm.create.placed';

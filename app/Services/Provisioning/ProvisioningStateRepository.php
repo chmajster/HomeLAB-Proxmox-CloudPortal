@@ -108,12 +108,13 @@ final class ProvisioningStateRepository
         $this->event($jobId, 8, 'VM created', 'completed', 'VM database ID ' . $vmId, 'PROVISIONING');
     }
 
-    public function ready(int $jobId): void
+    public function ready(int $jobId, int $step = 13, string $name = 'READY'): void
     {
+        $safeName = mb_substr(trim($name) === '' ? 'READY' : $name, 0, 100);
         $this->pdo->prepare(
-            "UPDATE vm_provisioning SET status='READY',current_step=13,current_step_name='READY',last_error=NULL,ready_at=CURRENT_TIMESTAMP WHERE job_id=:job"
-        )->execute(['job' => $jobId]);
-        $this->event($jobId, 13, 'READY', 'completed', null, 'READY');
+            "UPDATE vm_provisioning SET status='READY',current_step=:step,current_step_name=:name,last_error=NULL,ready_at=CURRENT_TIMESTAMP WHERE job_id=:job"
+        )->execute(['step' => $step, 'name' => $safeName, 'job' => $jobId]);
+        $this->event($jobId, $step, $safeName, 'completed', null, 'READY');
     }
 
     public function rollback(int $jobId, string $message): void

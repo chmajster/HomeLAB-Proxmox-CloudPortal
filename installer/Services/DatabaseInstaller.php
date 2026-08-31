@@ -9,7 +9,7 @@ use PDO;
 
 final class DatabaseInstaller
 {
-    public const SCHEMA_VERSION = '1.7.0';
+    public const SCHEMA_VERSION = '1.9.0';
     public const REQUIRED_TABLES = [
         'schema_migrations', 'roles', 'permissions', 'role_permissions', 'users', 'projects', 'project_users',
         'proxmox_connections', 'proxmox_nodes', 'resource_plans', 'vm_templates', 'networks', 'project_networks',
@@ -18,7 +18,7 @@ final class DatabaseInstaller
         'webhook_deliveries', 'audit_logs', 'settings', 'password_reset_tokens', 'login_attempts',
         'hostname_sequences', 'vm_provisioning', 'vm_provisioning_events', 'user_ssh_keys', 'cloud_init_profiles',
         'cloud_init_profile_ssh_keys', 'user_mfa_recovery_codes', 'api_tokens', 'user_sessions',
-        'api_idempotency_keys', 'reconciliation_incidents',
+        'api_idempotency_keys', 'reconciliation_incidents', 'ansible_inventories', 'ansible_inventory_hosts', 'vm_blueprints',
     ];
 
     public function __construct(private readonly string $schemaPath)

@@ -25,7 +25,7 @@ final class VmController
     {
         $user = $this->app->auth()->requireUser();
         $this->app->auth()->requirePermission('vm.view');
-        $sql = "SELECT vm.id, vm.connection_id, vm.name, vm.vmid, vm.node_name, vm.status, vm.vcpu, vm.ram_mb,
+        $sql = "SELECT vm.id, vm.connection_id, vm.project_id, vm.name, vm.vmid, vm.node_name, vm.status, vm.vcpu, vm.ram_mb,
                        vm.disk_gb, vm.created_at, p.name AS project_name, u.username AS owner_name, ip.address AS ip_address,
                        vp.status AS provisioning_status, vp.current_step AS provisioning_step, vp.current_step_name AS provisioning_step_name,
                        vp.fqdn AS fqdn

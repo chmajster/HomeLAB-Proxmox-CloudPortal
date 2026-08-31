@@ -5,12 +5,12 @@ $icon = static fn (string $name, string $class = 'ui-icon'): string => '<svg cla
 $nav = [
   ['dashboard', 'Dashboard', 'dashboard'], ['vms', $english ? 'Virtual machines' : 'Maszyny wirtualne', 'server'], ['create-vm', $english ? 'Create VM' : 'Utwórz VM', 'plus-circle'],
   ['projects', $english ? 'Projects' : 'Projekty', 'folder'], ['networks', $english ? 'Networks' : 'Sieci', 'network'], ['templates', $english ? 'Templates' : 'Template', 'template'],
-  ['cloud-init', 'Cloud-Init Profiles', 'cloud'], ['ssh-keys', $english ? 'SSH keys' : 'Klucze SSH', 'key'], ['activity', $english ? 'Activity' : 'Aktywność', 'history'],
+  ['cloud-init', 'Cloud-Init Profiles', 'cloud'], ['ssh-keys', $english ? 'SSH keys' : 'Klucze SSH', 'key'], ['ansible', 'Ansible', 'template'], ['activity', $english ? 'Activity' : 'Aktywność', 'history'],
   ['security', $english ? 'Security' : 'Bezpieczeństwo', 'key'],
 ];
 $adminNav = [
   ['users', $english ? 'Users' : 'Użytkownicy', 'users'], ['infrastructure', $english ? 'Infrastructure' : 'Infrastruktura', 'infrastructure'], ['proxmox', 'Proxmox', 'proxmox'],
-  ['firewall', 'Firewall', 'key'], ['storages', 'Storage', 'storage'], ['plans', $english ? 'Resource plans' : 'Plany zasobów', 'sliders'], ['quotas', 'Quota', 'gauge'], ['audit', 'Audit log', 'audit'], ['settings', $english ? 'Settings' : 'Ustawienia', 'settings'],
+  ['firewall', 'Firewall', 'key'], ['storages', 'Storage', 'storage'], ['plans', $english ? 'Resource plans' : 'Plany zasobów', 'sliders'], ['blueprints', 'VM Blueprints', 'template'], ['quotas', 'Quota', 'gauge'], ['audit', 'Audit log', 'audit'], ['settings', $english ? 'Settings' : 'Ustawienia', 'settings'],
 ];
 ?>
 <div class="portal-layout">
@@ -35,7 +35,7 @@ $adminNav = [
   <main class="portal-main">
     <header class="portal-topbar">
       <button class="icon-button mobile-menu" id="menuButton" aria-label="<?= $english ? 'Open menu' : 'Otwórz menu' ?>" aria-controls="portalSidebar" aria-expanded="false"><?= $icon('menu') ?></button>
-      <div><p class="eyebrow mb-0">Cloud Portal</p><h1 class="page-title mb-0" id="pageTitle">Ładowanie…</h1></div>
+      <div><p class="eyebrow mb-0">Cloud Portal</p><h1 class="page-title mb-0" id="pageTitle"><?= $page === 'blueprints' ? 'VM Blueprints' : 'Ładowanie…' ?></h1></div>
       <div class="ms-auto d-flex gap-2">
         <button class="icon-button" id="themeButton" aria-label="<?= $english ? 'Change theme' : 'Zmień motyw' ?>"><?= $icon('theme') ?></button>
         <a class="btn btn-primary d-none d-sm-inline-flex" href="<?= $escapedBasePath ?>/create-vm"><?= $icon('plus') ?><?= $english ? 'Create VM' : 'Utwórz VM' ?></a>

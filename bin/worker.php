@@ -100,6 +100,9 @@ $queueSelectedAnsible = static function (array $final) use ($jobs): array {
     if ($playbook === '') return $final;
     $result = is_array($final['result'] ?? null) ? $final['result'] : [];
     if (!empty($result['ansible_job_id'])) return $final;
+    $extraVars = is_array($payload['ansible_extra_vars'] ?? null) && !array_is_list($payload['ansible_extra_vars'])
+        ? $payload['ansible_extra_vars']
+        : [];
 
     $ansibleJobId = $jobs->enqueue(
         'vm.ansible',
@@ -109,6 +112,8 @@ $queueSelectedAnsible = static function (array $final) use ($jobs): array {
         [
             'playbook' => $playbook,
             'cloud_init_user' => (string) ($payload['cloud_init_user'] ?? 'clouduser'),
+            'extra_vars' => $extraVars,
+            'blueprint_id' => isset($payload['blueprint_id']) ? (int) $payload['blueprint_id'] : null,
         ],
         null,
         $vmId,
