@@ -43,7 +43,7 @@ final class VmBlueprintController
             'storage_id' => (int) $blueprint['storage_id'],
             'cloud_init_profile_id' => $blueprint['cloud_init_profile_id'],
             'managed_provisioning' => true,
-            'initial_hardening_command' => $blueprint['initial_hardening_command'],
+            'initial_hardening_command' => $blueprint['initial_hardening_command'] === null ? '' : (string) $blueprint['initial_hardening_command'],
             'run_puppet' => (bool) $blueprint['run_puppet'],
             'reboot_before_ansible' => (bool) $blueprint['reboot_before_ansible'],
             'ansible_playbook' => $blueprint['ansible_playbook'],
