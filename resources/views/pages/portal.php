@@ -10,7 +10,7 @@ $nav = [
 ];
 $adminNav = [
   ['users', $english ? 'Users' : 'Użytkownicy', 'users'], ['infrastructure', $english ? 'Infrastructure' : 'Infrastruktura', 'infrastructure'], ['proxmox', 'Proxmox', 'proxmox'],
-  ['storages', 'Storage', 'storage'], ['plans', $english ? 'Resource plans' : 'Plany zasobów', 'sliders'], ['quotas', 'Quota', 'gauge'], ['audit', 'Audit log', 'audit'], ['settings', $english ? 'Settings' : 'Ustawienia', 'settings'],
+  ['firewall', 'Firewall', 'key'], ['storages', 'Storage', 'storage'], ['plans', $english ? 'Resource plans' : 'Plany zasobów', 'sliders'], ['quotas', 'Quota', 'gauge'], ['audit', 'Audit log', 'audit'], ['settings', $english ? 'Settings' : 'Ustawienia', 'settings'],
 ];
 ?>
 <div class="portal-layout">
