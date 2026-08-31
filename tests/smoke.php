@@ -100,9 +100,9 @@ $test('production PHP has no command execution calls or TODO markers', static fu
                 $expect(str_contains($source, "['bypass_shell' => true]"), 'Terraform adapter must bypass the shell');
                 $expect(!preg_match('/(?<!->)(?<!::)\b(shell_exec|exec|system|passthru|popen)\s*\(/', $source), 'Unexpected shell primitive in Terraform adapter');
             } elseif ($ansibleAdapter !== false && $realPath === $ansibleAdapter) {
-                $expect(str_contains($source, 'proc_open($parts, $descriptors, $pipes, null, $environment'), 'Ansible adapter must use argv array');
-                $expect(str_contains($source, "['bypass_shell' => true]"), 'Ansible adapter must bypass the shell');
-                $expect(str_contains($source, "!str_starts_with(\$this->command, '/')"), 'Ansible command must require an absolute path');
+                $expect(str_contains($source, '$command = ['), 'Ansible adapter must use argv array');
+                $expect(str_contains($source, "proc_open(\$command, \$descriptors, \$pipes, null, \$environment, ['bypass_shell' => true])"), 'Ansible adapter must bypass the shell');
+                $expect(!str_contains($source, 'escapeshellarg('), 'Ansible adapter must not build a shell command');
                 $expect(!preg_match('/(?<!->)(?<!::)\b(shell_exec|exec|system|passthru|popen)\s*\(/', $source), 'Unexpected shell primitive in Ansible adapter');
             } else {
                 $expect(!preg_match('/(?<!->)(?<!::)\b(shell_exec|exec|system|passthru|proc_open|popen)\s*\(/', $source), 'Command execution in ' . $file->getPathname());

@@ -5,6 +5,7 @@ declare(strict_types=1);
 use CloudPortal\Application;
 use CloudPortal\Controllers\AccountSecurityController;
 use CloudPortal\Controllers\AuthController;
+use CloudPortal\Controllers\LxcFirewallController;
 use CloudPortal\Controllers\ProxmoxPreflightController;
 use CloudPortal\Controllers\ReconciliationController;
 use CloudPortal\Controllers\SystemController;
@@ -16,6 +17,7 @@ return static function (Router $router, Application $app): void {
     $system = new SystemController($app);
     $preflight = new ProxmoxPreflightController($app);
     $reconciliation = new ReconciliationController($app);
+    $lxcFirewall = new LxcFirewallController($app);
 
     $router->add('GET', '/metrics', [$system, 'metrics']);
 
@@ -40,4 +42,10 @@ return static function (Router $router, Application $app): void {
     $router->add('POST', '/api/v1/admin/reconciliation/scan', [$reconciliation, 'scan']);
     $router->add('GET', '/api/v1/admin/reconciliation/incidents', [$reconciliation, 'incidents']);
     $router->add('POST', '/api/v1/admin/reconciliation/incidents/{id}', [$reconciliation, 'close']);
+
+    $router->add('GET', '/api/v1/admin/proxmox-lxc/{connectionId}/{node}/{vmid}/firewall', [$lxcFirewall, 'state']);
+    $router->add('PUT', '/api/v1/admin/proxmox-lxc/{connectionId}/{node}/{vmid}/firewall/options', [$lxcFirewall, 'options']);
+    $router->add('POST', '/api/v1/admin/proxmox-lxc/{connectionId}/{node}/{vmid}/firewall/rules', [$lxcFirewall, 'createRule']);
+    $router->add('PUT', '/api/v1/admin/proxmox-lxc/{connectionId}/{node}/{vmid}/firewall/rules/{position}', [$lxcFirewall, 'updateRule']);
+    $router->add('DELETE', '/api/v1/admin/proxmox-lxc/{connectionId}/{node}/{vmid}/firewall/rules/{position}', [$lxcFirewall, 'deleteRule']);
 };

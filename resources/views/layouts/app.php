@@ -18,6 +18,9 @@ $assetVersion = static function (string $path) use ($assetRoot): string {
   <?php if (in_array($page, ['vms', 'vm-details', 'templates', 'settings'], true)): ?>
     <link href="<?= htmlspecialchars((string) $basePath, ENT_QUOTES, 'UTF-8') ?>/assets/css/vm-experience.css?v=<?= $assetVersion('css/vm-experience.css') ?>" rel="stylesheet">
   <?php endif; ?>
+  <?php if (in_array($page, ['vm-details', 'firewall'], true)): ?>
+    <link href="<?= htmlspecialchars((string) $basePath, ENT_QUOTES, 'UTF-8') ?>/assets/css/firewall-console.css?v=<?= $assetVersion('css/firewall-console.css') ?>" rel="stylesheet">
+  <?php endif; ?>
   <?php if ($page === 'templates'): ?>
     <link href="<?= htmlspecialchars((string) $basePath, ENT_QUOTES, 'UTF-8') ?>/assets/css/template-field-help.css?v=<?= $assetVersion('css/template-field-help.css') ?>" rel="stylesheet">
   <?php endif; ?>
@@ -29,18 +32,12 @@ $assetVersion = static function (string $path) use ($assetRoot): string {
   <script src="<?= htmlspecialchars((string) $basePath, ENT_QUOTES, 'UTF-8') ?>/assets/js/modules/api.js?v=<?= $assetVersion('js/modules/api.js') ?>" defer></script>
   <script src="<?= htmlspecialchars((string) $basePath, ENT_QUOTES, 'UTF-8') ?>/assets/js/modules/jobs.js?v=<?= $assetVersion('js/modules/jobs.js') ?>" defer></script>
   <script src="<?= htmlspecialchars((string) $basePath, ENT_QUOTES, 'UTF-8') ?>/assets/js/modules/system.js?v=<?= $assetVersion('js/modules/system.js') ?>" defer></script>
-  <?php if (!in_array($page, ['vm-details', 'project-details', 'admin-resource-details', 'settings', 'security'], true) && $page !== 'ansible' && $page !== 'blueprints'): ?>
+  <?php if (!in_array($page, ['vm-details', 'project-details', 'admin-resource-details', 'settings', 'security'], true) && $page !== 'firewall'): ?>
     <script src="<?= htmlspecialchars((string) $basePath, ENT_QUOTES, 'UTF-8') ?>/assets/js/app.js?v=<?= $assetVersion('js/app.js') ?>" defer></script>
     <script src="<?= htmlspecialchars((string) $basePath, ENT_QUOTES, 'UTF-8') ?>/assets/js/managed-provisioning.js?v=<?= $assetVersion('js/managed-provisioning.js') ?>" defer></script>
   <?php endif; ?>
   <?php if ($page === 'create-vm'): ?>
     <script src="<?= htmlspecialchars((string) $basePath, ENT_QUOTES, 'UTF-8') ?>/assets/js/ansible-create-vm.js?v=<?= $assetVersion('js/ansible-create-vm.js') ?>" defer></script>
-    <script src="<?= htmlspecialchars((string) $basePath, ENT_QUOTES, 'UTF-8') ?>/assets/js/blueprint-create-vm.js?v=<?= $assetVersion('js/blueprint-create-vm.js') ?>" defer></script>
-  <?php elseif ($page === 'ansible'): ?>
-    <script src="<?= htmlspecialchars((string) $basePath, ENT_QUOTES, 'UTF-8') ?>/assets/js/ansible-shell.js?v=<?= $assetVersion('js/ansible-shell.js') ?>" defer></script>
-    <script src="<?= htmlspecialchars((string) $basePath, ENT_QUOTES, 'UTF-8') ?>/assets/js/ansible-tower.js?v=<?= $assetVersion('js/ansible-tower.js') ?>" defer></script>
-  <?php elseif ($page === 'blueprints'): ?>
-    <script src="<?= htmlspecialchars((string) $basePath, ENT_QUOTES, 'UTF-8') ?>/assets/js/blueprint-admin.js?v=<?= $assetVersion('js/blueprint-admin.js') ?>" defer></script>
   <?php endif; ?>
   <script src="<?= htmlspecialchars((string) $basePath, ENT_QUOTES, 'UTF-8') ?>/assets/js/cloud-features.js?v=<?= $assetVersion('js/cloud-features.js') ?>" defer></script>
   <script src="<?= htmlspecialchars((string) $basePath, ENT_QUOTES, 'UTF-8') ?>/assets/js/portal-enhancements.js?v=<?= $assetVersion('js/portal-enhancements.js') ?>" defer></script>
@@ -51,6 +48,8 @@ $assetVersion = static function (string $path) use ($assetRoot): string {
     <script src="<?= htmlspecialchars((string) $basePath, ENT_QUOTES, 'UTF-8') ?>/assets/js/vm-details.js?v=<?= $assetVersion('js/vm-details.js') ?>" defer></script>
     <script src="<?= htmlspecialchars((string) $basePath, ENT_QUOTES, 'UTF-8') ?>/assets/js/vm-admin-enhancements.js?v=<?= $assetVersion('js/vm-admin-enhancements.js') ?>" defer></script>
     <script src="<?= htmlspecialchars((string) $basePath, ENT_QUOTES, 'UTF-8') ?>/assets/js/vm-management.js?v=<?= $assetVersion('js/vm-management.js') ?>" defer></script>
+    <script src="<?= htmlspecialchars((string) $basePath, ENT_QUOTES, 'UTF-8') ?>/assets/js/firewall.js?v=<?= $assetVersion('js/firewall.js') ?>" defer></script>
+    <script src="<?= htmlspecialchars((string) $basePath, ENT_QUOTES, 'UTF-8') ?>/assets/js/console-vm-detail-bridge.js?v=<?= $assetVersion('js/console-vm-detail-bridge.js') ?>" defer></script>
   <?php elseif ($page === 'project-details'): ?>
     <script src="<?= htmlspecialchars((string) $basePath, ENT_QUOTES, 'UTF-8') ?>/assets/js/project-details.js?v=<?= $assetVersion('js/project-details.js') ?>" defer></script>
   <?php elseif ($page === 'admin-resource-details'): ?>
@@ -65,6 +64,9 @@ $assetVersion = static function (string $path) use ($assetRoot): string {
     <script src="<?= htmlspecialchars((string) $basePath, ENT_QUOTES, 'UTF-8') ?>/assets/js/security.js?v=<?= $assetVersion('js/security.js') ?>" defer></script>
   <?php elseif ($page === 'activity'): ?>
     <script src="<?= htmlspecialchars((string) $basePath, ENT_QUOTES, 'UTF-8') ?>/assets/js/activity-hardening.js?v=<?= $assetVersion('js/activity-hardening.js') ?>" defer></script>
+  <?php elseif ($page === 'firewall'): ?>
+    <script src="<?= htmlspecialchars((string) $basePath, ENT_QUOTES, 'UTF-8') ?>/assets/js/firewall-admin.js?v=<?= $assetVersion('js/firewall-admin.js') ?>" defer></script>
+    <script src="<?= htmlspecialchars((string) $basePath, ENT_QUOTES, 'UTF-8') ?>/assets/js/firewall-lxc.js?v=<?= $assetVersion('js/firewall-lxc.js') ?>" defer></script>
   <?php endif; ?>
 </body>
 </html>

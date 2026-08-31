@@ -99,10 +99,11 @@ jobs:
       - run: node --check public/assets/js/security.js
       - run: node --check public/assets/js/activity-hardening.js
       - run: node --check public/assets/js/ansible-create-vm.js
-      - run: node --check public/assets/js/ansible-shell.js
-      - run: node --check public/assets/js/ansible-tower.js
-      - run: node --check public/assets/js/blueprint-create-vm.js
-      - run: node --check public/assets/js/blueprint-admin.js
+      - run: node --check public/assets/js/console.js
+      - run: node --check public/assets/js/console-vm-detail-bridge.js
+      - run: node --check public/assets/js/firewall.js
+      - run: node --check public/assets/js/firewall-admin.js
+      - run: node --check public/assets/js/firewall-lxc.js
       - run: npx playwright install --with-deps chromium
       - run: php -S 127.0.0.1:8765 tests/http-router.php > /tmp/cloudportal-http.log 2>&1 &
       - run: npx playwright test
