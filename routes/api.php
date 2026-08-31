@@ -9,6 +9,7 @@ use CloudPortal\Controllers\AdminResourceDetailsController;
 use CloudPortal\Controllers\AuditController;
 use CloudPortal\Controllers\AuthController;
 use CloudPortal\Controllers\CatalogController;
+use CloudPortal\Controllers\CloudArchitectureController;
 use CloudPortal\Controllers\CloudInitController;
 use CloudPortal\Controllers\DashboardController;
 use CloudPortal\Controllers\DnsSettingsController;
@@ -31,6 +32,7 @@ use CloudPortal\Http\Router;
 return static function (Router $router, Application $app): void {
     $auth = new AuthController($app);
     $dashboard = new DashboardController($app);
+    $cloudArchitecture = new CloudArchitectureController($app);
     $vms = new VmController($app);
     $advancedVms = new AdvancedVmController($app);
     $vmIdentity = new VmIdentityController($app);
@@ -61,6 +63,7 @@ return static function (Router $router, Application $app): void {
     $router->add('POST', '/api/v1/logout', [$auth, 'logout']);
     $router->add('GET', '/api/v1/dashboard', [$dashboard, 'index']);
     $router->add('GET', '/api/v1/catalog', [$catalog, 'index']);
+    $router->add('GET', '/api/v1/cloud/capabilities', [$cloudArchitecture, 'capabilities']);
 
     $router->add('GET', '/api/v1/ssh-keys', [$cloudInit, 'sshKeys']);
     $router->add('POST', '/api/v1/ssh-keys', [$cloudInit, 'createSshKey']);

@@ -86,6 +86,9 @@ final class AnsiblePlaybookService
         if (preg_match('/^[a-z_][a-z0-9_-]{0,31}$/', $user) !== 1) {
             throw new \RuntimeException('Ansible target username is invalid.');
         }
+        if (!str_starts_with($this->command, '/') || preg_match('/[\r\n\0]/', $this->command) === 1) {
+            throw new \RuntimeException('ansible-playbook command must be an absolute executable path.');
+        }
         if (!is_file($this->command) || !is_executable($this->command)) {
             throw new \RuntimeException('ansible-playbook is not installed or executable: ' . $this->command);
         }
@@ -98,24 +101,27 @@ final class AnsiblePlaybookService
             'cloudportal_target_ip' => $host,
             'cloudportal_target_user' => $user,
         ], JSON_UNESCAPED_SLASHES | JSON_THROW_ON_ERROR);
-        $parts = [
-            escapeshellarg($this->command),
-            '-i', escapeshellarg($host . ','),
-            '-u', escapeshellarg($user),
-            '--private-key', escapeshellarg($this->privateKeyPath),
+
+        $command = [
+            $this->command,
+            '-i', $host . ',',
+            '-u', $user,
+            '--private-key', $this->privateKeyPath,
             '--timeout', '30',
-            '--ssh-common-args', escapeshellarg('-o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -o ConnectTimeout=10'),
-            '--extra-vars', escapeshellarg($extraVars),
-            escapeshellarg($playbookPath),
+            '--ssh-common-args', '-o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -o ConnectTimeout=10',
+            '--extra-vars', $extraVars,
+            $playbookPath,
         ];
-        $command = implode(' ', [
-            'ANSIBLE_HOST_KEY_CHECKING=False',
-            'ANSIBLE_LOCAL_TEMP=/tmp/algen-ansible-local',
-            'ANSIBLE_SSH_CONTROL_PATH_DIR=/tmp/algen-ansible-cp',
-            implode(' ', $parts),
-        ]);
+        $environment = getenv();
+        if (!is_array($environment)) {
+            $environment = [];
+        }
+        $environment['ANSIBLE_HOST_KEY_CHECKING'] = 'False';
+        $environment['ANSIBLE_LOCAL_TEMP'] = '/tmp/algen-ansible-local';
+        $environment['ANSIBLE_SSH_CONTROL_PATH_DIR'] = '/tmp/algen-ansible-cp';
+
         $descriptors = [1 => ['pipe', 'w'], 2 => ['pipe', 'w']];
-        $process = proc_open($command, $descriptors, $pipes);
+        $process = proc_open($command, $descriptors, $pipes, null, $environment, ['bypass_shell' => true]);
         if (!is_resource($process)) throw new \RuntimeException('Could not start ansible-playbook.');
 
         stream_set_blocking($pipes[1], false);
