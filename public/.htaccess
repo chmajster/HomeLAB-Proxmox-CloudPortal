@@ -3,6 +3,14 @@ DirectoryIndex index.php
 
 <IfModule mod_rewrite.c>
     RewriteEngine On
+
+    <IfModule mod_proxy.c>
+        <IfModule mod_proxy_wstunnel.c>
+            RewriteCond %{HTTP:Upgrade} =websocket [NC]
+            RewriteRule ^console/ws/(.+)$ ws://127.0.0.1:6080/$1 [P,L]
+        </IfModule>
+    </IfModule>
+
     # When the release root is the DocumentRoot, /public is an internal asset
     # target only. Block attempts to address it explicitly while preserving
     # compatibility with the optional hardened public/ DocumentRoot layout.
