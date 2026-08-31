@@ -88,17 +88,24 @@ $test('schema includes all domain tables and encrypted secrets', static function
 
 $test('production PHP has no command execution calls or TODO markers', static function () use ($expect): void {
     $terraformAdapter = realpath(dirname(__DIR__) . '/app/Services/Provisioning/TerraformProvisioner.php');
+    $ansibleAdapter = realpath(dirname(__DIR__) . '/app/Services/Provisioning/AnsiblePlaybookService.php');
     foreach (['app', 'installer'] as $directory) {
         $iterator = new RecursiveIteratorIterator(new RecursiveDirectoryIterator(dirname(__DIR__) . '/' . $directory));
         foreach ($iterator as $file) {
             if (!$file->isFile() || $file->getExtension() !== 'php') continue;
             $source = (string) file_get_contents($file->getPathname());
-            if ($terraformAdapter === false || realpath($file->getPathname()) !== $terraformAdapter) {
-                $expect(!preg_match('/(?<!->)(?<!::)\b(shell_exec|exec|system|passthru|proc_open|popen)\s*\(/', $source), 'Command execution in ' . $file->getPathname());
-            } else {
+            $realPath = realpath($file->getPathname());
+            if ($terraformAdapter !== false && $realPath === $terraformAdapter) {
                 $expect(str_contains($source, "proc_open(['sudo', '-n', \$this->command]"), 'Terraform adapter must use argv array');
                 $expect(str_contains($source, "['bypass_shell' => true]"), 'Terraform adapter must bypass the shell');
                 $expect(!preg_match('/(?<!->)(?<!::)\b(shell_exec|exec|system|passthru|popen)\s*\(/', $source), 'Unexpected shell primitive in Terraform adapter');
+            } elseif ($ansibleAdapter !== false && $realPath === $ansibleAdapter) {
+                $expect(str_contains($source, '$command = ['), 'Ansible adapter must use argv array');
+                $expect(str_contains($source, "proc_open(\$command, \$descriptors, \$pipes, null, \$environment, ['bypass_shell' => true])"), 'Ansible adapter must bypass the shell');
+                $expect(!str_contains($source, 'escapeshellarg('), 'Ansible adapter must not build a shell command');
+                $expect(!preg_match('/(?<!->)(?<!::)\b(shell_exec|exec|system|passthru|popen)\s*\(/', $source), 'Unexpected shell primitive in Ansible adapter');
+            } else {
+                $expect(!preg_match('/(?<!->)(?<!::)\b(shell_exec|exec|system|passthru|proc_open|popen)\s*\(/', $source), 'Command execution in ' . $file->getPathname());
             }
             $expect(!preg_match('/\b(TODO|FIXME)\b/', $source), 'Marker in ' . $file->getPathname());
         }
