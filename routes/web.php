@@ -5,6 +5,7 @@ declare(strict_types=1);
 use CloudPortal\Application;
 use CloudPortal\Controllers\AdminResourceDetailsPageController;
 use CloudPortal\Controllers\AuthController;
+use CloudPortal\Controllers\ConsoleController;
 use CloudPortal\Controllers\OpenApiController;
 use CloudPortal\Controllers\PasswordResetController;
 use CloudPortal\Controllers\PortalController;
@@ -24,6 +25,7 @@ return static function (Router $router, Application $app): void {
     $adminResourceDetails = new AdminResourceDetailsPageController($app);
     $projectDetails = new ProjectDetailsPageController($app);
     $vmDetails = new VmDetailsPageController($app);
+    $console = new ConsoleController($app);
 
     $router->add('GET', '/install', [$installer, 'show']);
     $router->add('POST', '/install', [$installer, 'submit']);
@@ -48,5 +50,6 @@ return static function (Router $router, Application $app): void {
     $router->add('GET', '/projects/{id}', [$projectDetails, 'show']);
     $router->add('GET', '/vms/{id}', [$vmDetails, 'portal']);
     $router->add('GET', '/infrastructure/vms/{connectionId}/{node}/{vmid}', [$vmDetails, 'live']);
+    $router->add('GET', '/console/novnc/{connectionId}/{asset*}', [$console, 'asset']);
     $router->add('GET', '/{page}', [$portal, 'page']);
 };

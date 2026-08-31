@@ -4,6 +4,16 @@ DirectoryIndex index.php
 <IfModule mod_rewrite.c>
     RewriteEngine On
 
+    # Embedded noVNC uses a local WebSocket gateway so the Proxmox API token
+    # never reaches the browser. If proxy_wstunnel is unavailable the request
+    # falls through to the application and the UI offers the external fallback.
+    <IfModule mod_proxy.c>
+        <IfModule mod_proxy_wstunnel.c>
+            RewriteCond %{HTTP:Upgrade} =websocket [NC]
+            RewriteRule ^console/ws/(.+)$ ws://127.0.0.1:6080/$1 [P,L]
+        </IfModule>
+    </IfModule>
+
     # The ZIP may be extracted directly into an Apache document root. Never
     # expose application code, configuration, SQL, logs, tests or dependencies.
     RewriteRule ^(?:app|bin|config|database|docs|installer|resources|routes|storage|tests|vendor)(?:/|$) - [F,L,NC]
