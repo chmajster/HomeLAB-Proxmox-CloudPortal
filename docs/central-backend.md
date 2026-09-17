@@ -17,7 +17,7 @@ Konfiguracja może również pochodzić ze zmiennych `CP_BACKEND_URL`, `CP_BACKE
 
 ## Autoryzacja i UI
 
-Każde żądanie portalu odczytuje aktualny profil, role i permissions przez `/auth/me`. BackendSession przechowuje opaque access/refresh token w sesji serwera PHP, automatycznie rotuje refresh i nie wysyła go do JavaScript. InfrastructureBackendClient **nigdy nie zastępuje tokena użytkownika tokenem serwisowym**. Wspólny token służy testom połączenia; zasoby są pobierane z tożsamością użytkownika.
+Każde żądanie portalu odczytuje aktualny profil, role i permissions przez `/auth/me`. BackendSession przechowuje opaque access/refresh token w sesji serwera PHP, automatycznie rotuje refresh i nie wysyła go do JavaScript. InfrastructureBackendClient **nigdy nie zastępuje tokena użytkownika tokenem serwisowym**. Bearer token użytkownika autoryzuje operację, a osobny `X-Portal-Token` potwierdza pochodzenie z zaufanej instancji CloudPortal. Token serwisowy nie rozszerza permissions użytkownika.
 
 Administracja: użytkownicy, role, permissions, tokeny, audit. Infrastruktura: stan komponentów, połączenia/odkrywanie Proxmox, credentiale, szablony, deploymenty, zadania, logi i kontrolowane playbooki Ansible. Formularze wysyłają granularne create/update/delete; nie ma osobnej bazy RBAC w PHP.
 
@@ -39,5 +39,13 @@ W trybie centralnym przeglądarka komunikuje się z PHP pod `/backend-api`, a PH
 Niedostępność backendu daje błąd 503. Lokalne klienty Proxmox, Terraform i Ansible są wtedy nadal zablokowane. Worker PHP sprawdza tryb przed pobraniem kolejnego zadania; gateway konsoli nie uruchamia lokalnego połączenia. Sesja PHP jest przypisana do adresu backendu, więc zmiana tego adresu wymaga ponownego logowania i nie przesyła starego tokena do nowego serwera.
 
 Formularz VM pobiera storage i sieci dla wybranego węzła. Formularze workflow i osobnych zadań Ansible pobierają zatwierdzone playbooki z backendu, dobierają credential SSH/WinRM i przekazują tylko dozwolone parametry `hostname`/`timezone`. Sekrety pozostają wyłącznie w backendzie.
+
+## Self-service z Blueprintów
+
+Strona `/create-server` pobiera wyłącznie Blueprinty udostępnione dla `CloudPortal`, bieżącego użytkownika i jego ról. Formularz jest generowany z `variables_schema`; po zatwierdzeniu portal przekazuje wartości do `POST /blueprints/{id}/execute`. Generowanie i rezerwacja hostname, walidacja limitów CPU/RAM/dysku, utworzenie deploymentu oraz Job odbywają się wyłącznie w `Cloudportal-backed`.
+
+CloudPortal nie interpretuje DAG-u i nie uruchamia lokalnego Terraform, Ansible, SSH ani klienta Proxmox. Panel administratora `/automation/blueprints` zarządza definicjami przez to samo API. `/infrastructure/hostnames` pokazuje centralną historię rezerwacji.
+
+Każde żądanie zalogowanego użytkownika zawiera dwa niezależne konteksty: Bearer token użytkownika oraz `X-Portal-Token` konta serwisowego. Dzięki temu backend weryfikuje zarówno źródło portalu, jak i końcową tożsamość użytkownika, a pole `source` w Job/Audit nie zależy wyłącznie od deklaratywnego nagłówka.
 
 Testy `tests/e2e/backend-proxy-ui.spec.js` sprawdzają interakcje formularzy w przeglądarce na deterministycznych odpowiedziach API. Niezależny test `tests/test_portal_http_e2e.py` w repozytorium backendu sprawdza rzeczywiste PHP → HTTPS FastAPI, bez atrap HTTP.

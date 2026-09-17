@@ -15,7 +15,7 @@
     const hex=Array.from(bytes,b=>b.toString(16).padStart(2,'0')).join('');
     return `${hex.slice(0,8)}-${hex.slice(8,12)}-${hex.slice(12,16)}-${hex.slice(16,20)}-${hex.slice(20)}`;
   };
-  const titles = {dashboard:'Dashboard infrastruktury', users:'Użytkownicy', roles:'Role', permissions:'Uprawnienia', tokens:'Tokeny API', audit:'Audit', providers:'Połączenia', credentials:'Credentiale', templates:'Szablony Terraform', deployments:'Deploymenty', jobs:'Zadania', logs:'Logi zadań', ansible:'Playbooki Ansible', account:'Moje konto'};
+  const titles = {dashboard:'Dashboard infrastruktury', catalog:'Utwórz serwer', blueprints:'Blueprinty', hostnames:'Hostname Manager', users:'Użytkownicy', roles:'Role', permissions:'Uprawnienia', tokens:'Tokeny API', audit:'Audit', providers:'Połączenia', credentials:'Credentiale', templates:'Szablony Terraform', deployments:'Deploymenty', jobs:'Zadania', logs:'Logi zadań', ansible:'Playbooki Ansible', account:'Moje konto'};
   document.getElementById('page-title').textContent = titles[boot.page] || boot.page;
   function el(tag, text, className) { const n=document.createElement(tag); if(text!==undefined)n.textContent=String(text); if(className)n.className=className; return n; }
   function message(text, error=false) { const box=document.getElementById('message'); box.hidden=false; box.textContent=text; box.className=error?'error':''; }
@@ -205,11 +205,40 @@
       if(details.open&&(data.items.length===200||['running','queued'].includes(data.status)))detailTimer=setTimeout(poll,data.items.length===200?100:2000);
     }catch(e){status.textContent=e.message;}};await poll();
   }
+  function jsonObject(name,label){try{const parsed=JSON.parse(value(name)||'{}');if(!parsed||Array.isArray(parsed)||typeof parsed!=='object')throw new Error();return parsed;}catch{throw new Error(label+' musi zawierać poprawny obiekt JSON.');}}
+  function jsonArray(name,label){try{const parsed=JSON.parse(value(name)||'[]');if(!Array.isArray(parsed))throw new Error();return parsed;}catch{throw new Error(label+' musi zawierać poprawną tablicę JSON.');}}
+  function ids(name){return value(name).split(',').map(v=>v.trim()).filter(Boolean).map(Number);}
+  function blueprintForm(row=null){
+    const defaultSchema={environment:{type:'select',required:true,options:['dev','test','prod']},cpu:{type:'integer',default:2,min:1,max:8}};
+    const defaultDeployment={name:'{{ hostname }}',provider_id:1,credentials_id:1,hostname_scheme_id:1,template:'proxmox-vm',executor:'terraform',variables:{name:'{{ hostname }}',node:'pve',template_id:9000,cpu:'{{ cpu }}',memory:4096,disk:40,network:'vmbr0',storage:'local-lvm',ssh_username:'clouduser'}};
+    const defaultWorkflow=[{id:'hostname',type:'generate_hostname'},{id:'clone',type:'clone_vm',depends_on:['hostname']},{id:'apply',type:'terraform_apply',depends_on:['clone']}];
+    openForm(row?'Edytuj Blueprint':'Dodaj Blueprint',async key=>{
+      const data={slug:value('slug'),name:value('name'),description:value('description'),is_active:checked('is_active'),visibility:{backend:checked('visibility_backend'),cloudportal:checked('visibility_cloudportal'),api:checked('visibility_api')},allowed_role_ids:ids('role_ids'),allowed_user_ids:ids('user_ids'),variables_schema:jsonObject('variables_schema','Schemat zmiennych'),deployment:jsonObject('deployment','Definicja deploymentu'),workflow:jsonArray('workflow','Workflow')};
+      await api('/blueprints'+(row?'/'+row.id:''),row?'PUT':'POST',data,key);message(row?'Zapisano nową wersję Blueprintu.':'Blueprint utworzony.');
+    });
+    input('slug','Slug',row?.slug||'');input('name','Nazwa',row?.name||'');input('description','Opis',row?.description||'','textarea',false);
+    input('is_active','Aktywny',row?.is_active??true,'checkbox',false);input('visibility_backend','Dostępny w backendzie',row?.visibility?.backend??true,'checkbox',false);input('visibility_cloudportal','Dostępny w CloudPortal',row?.visibility?.cloudportal??true,'checkbox',false);input('visibility_api','Dostępny przez API',row?.visibility?.api??true,'checkbox',false);
+    input('role_ids','Dozwolone role ID — przecinki',(row?.allowed_role_ids||[]).join(','),'text',false);input('user_ids','Dozwoleni użytkownicy ID — przecinki',(row?.allowed_user_ids||[]).join(','),'text',false);
+    input('variables_schema','Schemat zmiennych JSON',JSON.stringify(row?.variables_schema||defaultSchema,null,2),'textarea');input('deployment','Definicja deploymentu JSON',JSON.stringify(row?.deployment||defaultDeployment,null,2),'textarea');input('workflow','Workflow DAG JSON',JSON.stringify(row?.workflow||defaultWorkflow,null,2),'textarea');
+  }
+  function executeBlueprint(row){
+    openForm('Utwórz serwer — '+row.name,async key=>{
+      const variables={};
+      for(const [name,definition]of Object.entries(row.variables_schema||{})){const control=form.elements.namedItem('variable_'+name);if(definition.type==='boolean')variables[name]=control.checked;else if(control.value!=='')variables[name]=definition.type==='integer'?Number(control.value):control.value;}
+      const result=await api('/blueprints/'+row.id+'/execute','POST',{variables,hostname_values:jsonObject('hostname_values','Wartości hostname')},key);message('Tworzenie serwera rozpoczęte. Zadanie: '+result.job.id);
+    });
+    fields.append(el('p',row.description||'Blueprint v'+row.version));
+    for(const [name,definition]of Object.entries(row.variables_schema||{})){
+      if(definition.type==='select')select('variable_'+name,definition.label||name,(definition.options||[]).map(v=>[v,v]),definition.default??'',false,!!definition.required);
+      else {const control=input('variable_'+name,definition.label||name,definition.default??'',definition.type==='boolean'?'checkbox':definition.type==='integer'?'number':'text',!!definition.required);if(definition.min!==null&&definition.min!==undefined)control.min=definition.min;if(definition.max!==null&&definition.max!==undefined)control.max=definition.max;}
+    }
+    input('hostname_values','Wartości hostname JSON','{}','textarea',false);
+  }
   function rowActions(row,resource){
     const actions=el('div',undefined,'actions');actions.append(button('Szczegóły',()=>recordDetails(row)));
-    const edit={users:userForm,roles:roleForm,credentials:credentialForm,providers:providerForm};
+    const edit={users:userForm,roles:roleForm,credentials:credentialForm,providers:providerForm,blueprints:blueprintForm};
     if(edit[resource]&&can(resource+'.update'))actions.append(button('Edytuj',()=>edit[resource](row)));
-    if(['users','roles','credentials','providers'].includes(resource)&&can(resource+'.delete'))actions.append(button('Usuń',()=>change('Usunąć rekord '+row.id,row.id,'/'+resource+'/'+row.id,'DELETE'),'danger'));
+    if(['users','roles','credentials','providers','blueprints'].includes(resource)&&can(resource+'.delete'))actions.append(button('Usuń',()=>change('Usunąć rekord '+row.id,row.id,'/'+resource+'/'+row.id,'DELETE'),'danger'));
     if(resource==='users'){
       if(can('roles.assign')&&can('roles.read'))actions.append(button('Role',()=>assignRoles(row)));
       if(can('users.update')){
@@ -221,6 +250,8 @@
     if(resource==='tokens'&&can('tokens.revoke')&&!row.revoked_at)actions.append(button('Unieważnij',()=>change('Unieważnić token',row.id,'/tokens/'+row.id+'/revoke'),'danger'));
     if(resource==='credentials'&&can('credentials.test'))actions.append(button('Testuj',async()=>recordDetails(await api('/credentials/'+row.id+'/test','POST',{}))));
     if(resource==='providers')actions.append(button('Zasoby',()=>discoverProvider(row)));
+    if((resource==='catalog'||resource==='blueprints')&&can('blueprints.execute')&&row.is_active&&row.visibility?.cloudportal)actions.append(button('Utwórz serwer',()=>executeBlueprint(row),'primary'));
+    if(resource==='hostnames'&&can('hostnames.release')&&row.status!=='released')actions.append(button('Zwolnij',()=>change('Zwolnić hostname '+row.hostname,row.id,'/hostnames/'+row.id+'/release'),'danger'));
     if(resource==='deployments'&&!row.active_job_id&&row.status!=='destroyed'){
       if(can('jobs.execute')&&can('terraform.execute')){actions.append(button('Plan',async()=>{await api('/jobs','POST',{operation:'terraform.plan',deployment_id:row.id},uuid());message('Plan dodany do kolejki.');await load();}));}
       if(can('jobs.execute')&&can('terraform.execute')&&can('deployments.create'))actions.append(button('Apply / ponów',async()=>{if(!confirm('Uruchomić apply dla istniejącego deploymentu?'))return;await api('/jobs','POST',{operation:'terraform.apply',deployment_id:row.id},uuid());await load();}));
@@ -232,7 +263,7 @@
     }
     return actions;
   }
-  const columns={users:[['id','ID'],['username','Użytkownik'],['email','E-mail'],['is_active','Aktywny'],['is_service_account','Serwisowy']],roles:[['id','ID'],['name','Nazwa'],['permissions','Uprawnienia']],tokens:[['name','Nazwa'],['token_prefix','Prefix'],['user_id','Konto'],['scopes','Zakres'],['expires_at','Wygasa'],['revoked_at','Unieważniony']],credentials:[['name','Nazwa'],['type','Typ'],['endpoint','Endpoint'],['username','Użytkownik'],['configured','Skonfigurowany']],providers:[['id','ID'],['name','Nazwa'],['type','Typ'],['credentials_id','Credential']],deployments:[['name','Nazwa'],['status','Status'],['provider','Provider'],['template','Szablon'],['created_at','Utworzono']],jobs:[['id','ID'],['operation','Operacja'],['status','Status'],['request_id','Request ID'],['created_at','Utworzono']],audit:[['timestamp','Czas'],['user_id','Użytkownik'],['action','Operacja'],['resource','Zasób'],['result','Wynik'],['request_id','Request ID']],templates:[['id','ID'],['name','Nazwa'],['provider','Provider']],ansible:[['id','ID'],['name','Nazwa'],['transport','Transport'],['variables','Parametry']]};
+  const columns={users:[['id','ID'],['username','Użytkownik'],['email','E-mail'],['is_active','Aktywny'],['is_service_account','Serwisowy']],roles:[['id','ID'],['name','Nazwa'],['permissions','Uprawnienia']],tokens:[['name','Nazwa'],['token_prefix','Prefix'],['user_id','Konto'],['scopes','Zakres'],['expires_at','Wygasa'],['revoked_at','Unieważniony']],credentials:[['name','Nazwa'],['type','Typ'],['endpoint','Endpoint'],['username','Użytkownik'],['configured','Skonfigurowany']],providers:[['id','ID'],['name','Nazwa'],['type','Typ'],['credentials_id','Credential']],catalog:[['name','Blueprint'],['description','Opis'],['version','Wersja']],blueprints:[['name','Nazwa'],['slug','Slug'],['version','Wersja'],['is_active','Aktywny'],['visibility','Widoczność']],hostnames:[['hostname','Hostname'],['status','Status'],['resource_id','Zasób'],['created_at','Utworzono']],deployments:[['name','Nazwa'],['status','Status'],['provider','Provider'],['template','Szablon'],['created_at','Utworzono']],jobs:[['id','ID'],['operation','Operacja'],['status','Status'],['source','Źródło'],['request_id','Request ID'],['created_at','Utworzono']],audit:[['timestamp','Czas'],['user_id','Użytkownik'],['source','Źródło'],['action','Operacja'],['resource','Zasób'],['result','Wynik'],['request_id','Request ID']],templates:[['id','ID'],['name','Nazwa'],['provider','Provider']],ansible:[['id','ID'],['name','Nazwa'],['transport','Transport'],['variables','Parametry']]};
   function renderTable(rows,resource){
     if(!rows.length){content.append(el('section','Brak rekordów.','card'));return;}
     const wrap=el('div',undefined,'table-wrap'),table=el('table'),head=el('thead'),tr=el('tr');
@@ -250,9 +281,9 @@
     }
     if(boot.page==='permissions'){const grid=el('section',undefined,'card permission-list');for(const p of await list('/permissions'))grid.append(el('p',p));content.append(grid);return;}
     let resource=boot.page==='logs'?'jobs':boot.page;
-    const path=resource==='ansible'?'/ansible/playbooks':'/'+resource;
-    const rows=await list(path+'?offset='+offset+'&limit=100');renderTable(rows,resource);
-    const creators={users:userForm,roles:roleForm,tokens:tokenForm,credentials:credentialForm,providers:providerForm,deployments:deploymentForm,ansible:ansibleForm};
+    const path=resource==='ansible'?'/ansible/playbooks':resource==='catalog'?'/blueprints?available=true':'/'+resource;
+    const rows=await list(path+(path.includes('?')?'&':'?')+'offset='+offset+'&limit=100');renderTable(rows,resource);
+    const creators={users:userForm,roles:roleForm,tokens:tokenForm,credentials:credentialForm,providers:providerForm,blueprints:blueprintForm,deployments:deploymentForm,ansible:ansibleForm};
     const needed=resource==='ansible'?['ansible.execute','jobs.execute','credentials.read']:resource==='deployments'?['deployments.create','terraform.execute','jobs.execute','providers.read']:resource==='providers'?['providers.create','credentials.read']:resource==='roles'?['roles.create','roles.read']:[resource+'.create'];
     if(creators[resource]&&needed.every(can)){create.hidden=false;create.textContent=resource==='ansible'?'Uruchom':'Dodaj';create.onclick=()=>Promise.resolve(creators[resource]()).catch(e=>message(e.message,true));}
     if(resource==='tokens'&&['users.create','users.update','roles.create','roles.read','roles.assign','tokens.create','portal.connect'].every(can))content.prepend(button('Utwórz konto i token serwisowy portalu',serviceAccount));

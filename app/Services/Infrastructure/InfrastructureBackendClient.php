@@ -26,7 +26,14 @@ final class InfrastructureBackendClient
             throw new \InvalidArgumentException('Invalid backend API path.');
         }
         $requestId = $_SERVER['CLOUD_PORTAL_REQUEST_ID'] ?? self::uuid();
-        $headers = ['Accept: application/json', 'Content-Type: application/json', 'X-Request-ID: ' . $requestId];
+        $serviceToken=(string)($this->config['token']??'');
+        $fromPortal=$this->token!==null&&$serviceToken!==''&&!hash_equals($serviceToken,$this->token);
+        $headers = ['Accept: application/json', 'Content-Type: application/json', 'X-Request-ID: ' . $requestId,
+            'X-Portal-Source: '.($fromPortal?'CloudPortal':'API')];
+        if($fromPortal) {
+            if(!preg_match('/^cp_[A-Za-z0-9_-]{32,128}$/D',$serviceToken)) throw new HttpException(503,'Nieprawidłowy token serwisowy CloudPortal.');
+            $headers[]='X-Portal-Token: '.$serviceToken;
+        }
         if ($this->token !== null) {
             if (!preg_match('/^cp_[A-Za-z0-9_-]{32,128}$/D', $this->token)) throw new HttpException(401, 'Nieprawidłowy token backendu.');
             $headers[] = 'Authorization: Bearer ' . $this->token;
@@ -108,6 +115,11 @@ final class InfrastructureBackendClient
     public function assignRoles(int $id, array $roles): array { return $this->request('PUT', '/users/'.$this->id($id).'/roles', ['role_ids'=>$roles]); }
     public function getUserRoles(int $id): array { return $this->request('GET', '/users/'.$this->id($id).'/roles'); }
     public function getTemplates(): array { return $this->request('GET', '/templates'); }
+    public function getBlueprints(bool $available = true): array { return $this->request('GET', '/blueprints'.($available?'?available=true':'')); }
+    public function getBlueprint(int $id): array { return $this->request('GET', '/blueprints/'.$this->id($id)); }
+    public function executeBlueprint(int $id, array $data, string $key): array { return $this->request('POST', '/blueprints/'.$this->id($id).'/execute', $data, $key); }
+    public function getHostnameSchemes(): array { return $this->request('GET', '/hostname-schemes'); }
+    public function getHostnames(int $offset=0): array { return $this->request('GET', '/hostnames?offset='.max(0,$offset).'&limit=100'); }
     public function getPlaybooks(): array { return $this->request('GET', '/ansible/playbooks'); }
     public function testCredential(int $id): array { return $this->request('POST', '/credentials/'.$this->id($id).'/test'); }
     public function revokeToken(int $id): array { return $this->request('POST', '/tokens/'.$this->id($id).'/revoke'); }
