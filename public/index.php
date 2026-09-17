@@ -7,6 +7,7 @@ use CloudPortal\Http\HttpException;
 use CloudPortal\Http\Request;
 use CloudPortal\Http\Response;
 use CloudPortal\Http\Router;
+use CloudPortal\Http\StaticAssets;
 use CloudPortal\Installer\Services\JsonInstaller;
 use CloudPortal\Security\Headers;
 use CloudPortal\Services\Http\IdempotencyService;
@@ -79,6 +80,11 @@ $idempotencyContext = null;
 
 try {
     $request = Request::capture($app->basePath());
+    // Some hosting configurations route even static files through index.php.
+    // Resolve them before the installation redirect or authentication checks.
+    $assetResponse = (new StaticAssets($root . '/public/assets'))->respond($request);
+    if ($assetResponse !== null) $assetResponse->send();
+
     $providedCorrelation = strtolower(trim((string) $request->header('x-correlation-id', '')));
     $correlationId = preg_match('/^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/', $providedCorrelation) === 1
         ? $providedCorrelation

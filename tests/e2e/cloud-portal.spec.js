@@ -10,10 +10,27 @@ for (const width of [320, 390, 768, 1440, 1920]) {
   });
 }
 
-test('installer renders without browser errors', async ({ page }) => {
+test('installer loads its styles, scripts and icons without browser errors', async ({ page }) => {
   const errors = [];
   page.on('pageerror', error => errors.push(error.message));
+  page.on('console', message => {
+    if (message.type() === 'error') errors.push(message.text());
+  });
+  const assets = [
+    ['/assets/css/app.css', /text\/css/],
+    ['/assets/js/installer.js', /(?:application|text)\/javascript/],
+    ['/assets/icons.svg', /image\/svg\+xml/],
+  ];
+  const responses = assets.map(([path]) => page.waitForResponse(response =>
+    new URL(response.url()).pathname.endsWith(path) && response.request().method() === 'GET'
+  ));
   await page.goto('/install', {waitUntil: 'networkidle'});
+  for (const [index, response] of (await Promise.all(responses)).entries()) {
+    expect(response.status(), assets[index][0]).toBe(200);
+    expect(response.headers()['content-type'], assets[index][0]).toMatch(assets[index][1]);
+  }
+  await expect(page.locator('.installer-header')).toHaveCSS('display', 'flex');
+  await expect(page.locator('.installer-progress')).toHaveCSS('display', 'grid');
   expect(errors).toEqual([]);
 });
 
