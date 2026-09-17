@@ -40,7 +40,7 @@ final class InfrastructureBackendClient
             $tooLarge = false;
             curl_setopt_array($curl, [
                 CURLOPT_CUSTOMREQUEST => $method, CURLOPT_HTTPHEADER => $headers,
-                CURLOPT_FOLLOWLOCATION => false, CURLOPT_PROTOCOLS => CURLPROTO_HTTPS,
+                CURLOPT_FOLLOWLOCATION => false, CURLOPT_PROXY => '', CURLOPT_PROTOCOLS => CURLPROTO_HTTPS,
                 CURLOPT_CONNECTTIMEOUT => min(5, (int) ($this->config['timeout'] ?? 30)),
                 CURLOPT_TIMEOUT => (int) ($this->config['timeout'] ?? 30),
                 CURLOPT_SSL_VERIFYPEER => (bool) ($this->config['verify_tls'] ?? true),
