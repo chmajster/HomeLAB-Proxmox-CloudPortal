@@ -21,6 +21,8 @@ final class InfrastructureBackendClientTest extends TestCase
         self::assertContains('Authorization: Bearer '.$token,$captured['headers']);
         self::assertContains('Idempotency-Key: '.$key,$captured['headers']);
         self::assertContains('X-Request-ID: '.$key,$captured['headers']);
+        self::assertContains('X-Portal-Source: CloudPortal',$captured['headers']);
+        self::assertContains('X-Portal-Token: cp_'.str_repeat('s',64),$captured['headers']);
         self::assertNotContains('Authorization: Bearer cp_'.str_repeat('s',64),$captured['headers']);
     }
     public function testLoginDoesNotFallBackToServiceToken(): void
@@ -99,5 +101,18 @@ final class InfrastructureBackendClientTest extends TestCase
     {
         $this->expectException(HttpException::class);
         new InfrastructureBackendClient(['url'=>'https://backend.example','timeout'=>0]);
+    }
+
+    public function testBlueprintCatalogAndExecutionUseBackendApi(): void
+    {
+        $requests=[];
+        $client=new InfrastructureBackendClient(['url'=>'https://backend.example'],null,
+            static function($method,$url,$headers,$body)use(&$requests):array{$requests[]=compact('method','url','headers','body');return [200,'{"items":[],"job":{"id":"job-1"}}'];});
+        $client->getBlueprints();
+        $client->executeBlueprint(7,['variables'=>['cpu'=>4]],InfrastructureBackendClient::uuid());
+        self::assertSame('https://backend.example/api/v1/blueprints?available=true',$requests[0]['url']);
+        self::assertSame('https://backend.example/api/v1/blueprints/7/execute',$requests[1]['url']);
+        self::assertSame('POST',$requests[1]['method']);
+        self::assertSame(['variables'=>['cpu'=>4]],$requests[1]['body']);
     }
 }

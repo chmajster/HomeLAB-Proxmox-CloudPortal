@@ -55,10 +55,11 @@ final class PortalController
         $pages=['/'=>'dashboard','/infrastructure'=>'dashboard','/admin/users'=>'users','/admin/roles'=>'roles',
             '/admin/permissions'=>'permissions','/admin/tokens'=>'tokens','/admin/audit'=>'audit','/infrastructure/providers'=>'providers',
             '/infrastructure/credentials'=>'credentials','/infrastructure/templates'=>'templates','/infrastructure/deployments'=>'deployments',
-            '/infrastructure/jobs'=>'jobs','/infrastructure/logs'=>'logs','/infrastructure/ansible'=>'ansible','/account'=>'account'];
+            '/infrastructure/jobs'=>'jobs','/infrastructure/logs'=>'logs','/infrastructure/ansible'=>'ansible',
+            '/create-server'=>'catalog','/automation/blueprints'=>'blueprints','/infrastructure/hostnames'=>'hostnames','/account'=>'account'];
         $page=$pages[$request->path]??null;
         if($page===null || $request->method!=='GET') throw new HttpException(404,'Strona nie istnieje w trybie centralnego backendu.');
-        $permission=match($page) {'dashboard','account'=>null,'permissions'=>'roles.read','templates'=>'terraform.read','logs'=>'jobs.read',default=>$page.'.read'};
+        $permission=match($page) {'dashboard','account'=>null,'permissions'=>'roles.read','templates'=>'terraform.read','logs'=>'jobs.read','catalog'=>'blueprints.read',default=>$page.'.read'};
         if($permission!==null && !in_array($permission,$me['permissions'],true)) throw new HttpException(403,'Brak uprawnienia: '.$permission);
         return $this->render($page,$me,[]);
     }
@@ -66,15 +67,21 @@ final class PortalController
     {
         $path=substr($request->path,strlen('/backend-api'));
         $allowed=match($request->method) {
-            'GET'=>'#^/(?:health|info|permissions|audit|templates(?:/[a-z0-9_-]+)?|terraform/templates|ansible/playbooks|auth/me|(?:users|roles|tokens|credentials|providers|deployments|jobs)(?:/[a-z0-9-]+(?:/(?:roles|nodes|storages|networks|templates|vms|pools|logs))?)?)$#D',
-            'POST'=>'#^/(?:users|roles|tokens|credentials|providers|deployments|jobs|auth/change-password|users/\d+/(?:enable|disable|unlock|reset-password)|tokens/\d+/revoke|credentials/\d+/test|deployments/[a-z0-9-]+/destroy|jobs/[a-z0-9-]+/cancel)$#D',
-            'PUT'=>'#^/(?:(?:users|roles|credentials|providers)/\d+|users/\d+/roles)$#D',
-            'DELETE'=>'#^/(?:users|roles|tokens|credentials|providers)/\d+$#D',
+            'GET'=>'#^/(?:health|info|permissions|audit|templates(?:/[a-z0-9_-]+)?|terraform/templates|ansible/playbooks|auth/me|hostname-schemes|hostnames|blueprints(?:/\d+)?|(?:users|roles|tokens|credentials|providers|deployments|jobs)(?:/[a-z0-9-]+(?:/(?:roles|nodes|storages|networks|templates|vms|pools|logs))?)?)$#D',
+            'POST'=>'#^/(?:users|roles|tokens|credentials|providers|deployments|jobs|blueprints|hostname-schemes|hostnames/generate|auth/change-password|users/\d+/(?:enable|disable|unlock|reset-password)|tokens/\d+/revoke|credentials/\d+/test|blueprints/\d+/execute|hostnames/[a-z0-9-]+/(?:assign|release)|deployments/[a-z0-9-]+/destroy|jobs/[a-z0-9-]+/cancel)$#D',
+            'PUT'=>'#^/(?:(?:users|roles|credentials|providers|blueprints|hostname-schemes)/\d+|users/\d+/roles)$#D',
+            'DELETE'=>'#^/(?:users|roles|tokens|credentials|providers|blueprints|hostname-schemes)/\d+$#D',
             default=>'#(?!)#',
         };
         if(!preg_match($allowed,$path)) throw new HttpException(404,'Nieobsługiwana operacja API.');
         $query=[];
         foreach(['offset','limit','after'] as $key) if($request->query($key)!==null) $query[$key]=max(0,(int)$request->query($key));
+        if($request->query('available')!==null) $query['available']=$request->query('available')==='true'?'true':'false';
+        if($request->query('status')!==null) {
+            $status=(string)$request->query('status');
+            if(!in_array($status,['reserved','assigned','released'],true)) throw new HttpException(422,'Nieprawidłowy status hostname.');
+            $query['status']=$status;
+        }
         if($request->query('request_id')!==null) $query['request_id']=(string)$request->query('request_id');
         if($request->query('node')!==null) {
             $node=(string)$request->query('node');
