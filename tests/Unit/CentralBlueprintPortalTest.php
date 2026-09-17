@@ -36,4 +36,11 @@ final class CentralBlueprintPortalTest extends TestCase
         self::assertStringContainsString("['/account','/backend-api/auth/change-password']",$controller);
         self::assertStringContainsString("Response::redirect(\$this->app->url('/account'))",$controller);
     }
+
+    public function testNativeInstallerIsNotCapturedByUnconfiguredBackendMode(): void
+    {
+        $controller=(string)file_get_contents(dirname(__DIR__,2).'/app/Controllers/Backend/PortalController.php');
+        self::assertStringNotContainsString("|| !\$this->app->installed()",$controller);
+        self::assertStringContainsString("\$request->path==='/settings/infrastructure/backend'",$controller);
+    }
 }

@@ -16,7 +16,7 @@ final class PortalController
     public function __construct(private readonly Application $app) { $this->configuration=new BackendConfiguration($app->root); }
     public function handles(Request $request): bool
     {
-        return $this->configuration->configured() || !$this->app->installed() || $request->path==='/settings/infrastructure/backend';
+        return $this->configuration->configured() || $request->path==='/settings/infrastructure/backend';
     }
     private function csrf(Request $request): void
     {
