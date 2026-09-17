@@ -179,6 +179,10 @@ $reconcileFailed();
 $once = in_array('--once', $argv, true);
 $lastHeartbeat = time();
 do {
+    if ((new \CloudPortal\Services\Infrastructure\BackendConfiguration($root))->configured()) {
+        fwrite(STDERR, "Central backend enabled; local worker will not claim another job.\n");
+        break;
+    }
     if (is_file($maintenancePath)) {
         fwrite(STDERR, "Portal maintenance mode became active; worker will not claim another job.\n");
         break;

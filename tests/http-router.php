@@ -56,4 +56,17 @@ if ($path === '/__visual') {
     ]);
     return;
 }
+if ($path === '/__backend-ui') {
+    // Test-only rendering of the production view; never part of public/index.php.
+    $page = in_array($_GET['page'] ?? '', ['deployments', 'ansible'], true) ? $_GET['page'] : 'deployments';
+    $base = '';
+    $csrf = 'backend-browser-test';
+    $me = ['user' => ['id' => 1, 'username' => 'ui-test', 'email' => 'ui@example.com'], 'roles' => [],
+        'permissions' => isset($_GET['viewer']) ? ['deployments.read'] : [
+            'deployments.read', 'deployments.create', 'terraform.execute', 'jobs.execute', 'providers.read',
+            'credentials.read', 'ansible.read', 'ansible.execute']];
+    $escape = static fn(mixed $value): string => htmlspecialchars((string) $value, ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8');
+    require $root . '/resources/views/backend/portal.php';
+    return;
+}
 require $root . '/public/index.php';

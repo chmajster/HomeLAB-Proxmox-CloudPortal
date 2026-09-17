@@ -104,6 +104,7 @@ final class AnsiblePlaybookService
      */
     public function runInventory(string $playbook, array $hosts, array $extraVars = []): array
     {
+        \CloudPortal\Services\Infrastructure\BackendConfiguration::assertLocalExecutionAllowed();
         $playbookPath = $this->resolve($playbook);
         if (!str_starts_with($this->command, '/') || preg_match('/[\r\n\0]/', $this->command) === 1) {
             throw new \RuntimeException('Ansible command must be an absolute executable path.');

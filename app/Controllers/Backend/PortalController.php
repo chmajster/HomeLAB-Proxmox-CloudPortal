@@ -26,7 +26,9 @@ final class PortalController
     }
     public function dispatch(Request $request): Response
     {
-        $_SERVER['CLOUD_PORTAL_REQUEST_ID']=InfrastructureBackendClient::uuid();
+        $incomingId=(string)$request->header('x-request-id','');
+        $_SERVER['CLOUD_PORTAL_REQUEST_ID']=preg_match('/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/Di',$incomingId)
+            ?strtolower($incomingId):InfrastructureBackendClient::uuid();
         header('X-Request-ID: '.$_SERVER['CLOUD_PORTAL_REQUEST_ID']);
         $this->csrf($request);
         $config=$this->configuration->load();
@@ -74,9 +76,22 @@ final class PortalController
         $query=[];
         foreach(['offset','limit','after'] as $key) if($request->query($key)!==null) $query[$key]=max(0,(int)$request->query($key));
         if($request->query('request_id')!==null) $query['request_id']=(string)$request->query('request_id');
+        if($request->query('node')!==null) {
+            $node=(string)$request->query('node');
+            if(!preg_match('/^[A-Za-z0-9_.-]{1,63}$/D',$node)) throw new HttpException(422,'Nieprawidłowa nazwa węzła.');
+            $query['node']=$node;
+        }
         if($query!==[]) $path.='?'.http_build_query($query);
-        $result=$client->request($request->method,$path,$request->method==='GET'?null:$request->all(),$request->header('idempotency-key'),$path==='/health');
-        return Response::json($result);
+        $body=null;
+        if($request->method!=='GET') {
+            if(strlen($request->rawBody())>1024*1024) throw new HttpException(413,'Limit żądania backendu wynosi 1 MiB.');
+            // Preserve JSON object/array types, including empty objects in Ansible variables.
+            $body=$request->rawBody()!==''&&str_contains((string)$request->header('content-type'),'application/json')
+                ?json_decode($request->rawBody(),false,64,JSON_THROW_ON_ERROR):(object)$request->all();
+            if(!is_array($body)&&!$body instanceof \stdClass) throw new HttpException(422,'Wymagany obiekt JSON.');
+        }
+        $client->request($request->method,$path,$body,$request->header('idempotency-key'),$path==='/health');
+        return new Response($client->responseBody(),$path==='/health'?200:$client->responseStatus(),['Content-Type'=>'application/json; charset=utf-8']);
     }
     private function settings(Request $request,BackendSession $session,array $config): Response
     {

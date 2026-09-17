@@ -160,6 +160,7 @@ final class ProxmoxClient implements ProxmoxClientInterface, ProxmoxFileUploadIn
     /** @param \CurlHandle|resource $curl */
     private function execute(mixed $curl): mixed
     {
+        \CloudPortal\Services\Infrastructure\BackendConfiguration::assertLocalExecutionAllowed();
         $raw = curl_exec($curl);
         $curlCode = curl_errno($curl);
         $error = curl_error($curl);

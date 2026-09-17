@@ -9,6 +9,11 @@ PLAYBOOK_DIR="${ANSIBLE_PLAYBOOKS_DIRECTORY:-${APP_ROOT}/ansible/playbooks}"
 WORKER_USER="${CLOUD_PORTAL_WORKER_USER:-www-data}"
 WORKER_GROUP="${CLOUD_PORTAL_WORKER_GROUP:-www-data}"
 
+if [[ -n "${CP_BACKEND_URL:-}" || -s "${APP_ROOT}/config/backend.json" ]]; then
+  echo "Ansible is managed by Cloudportal-backed. Local controller setup is disabled." >&2
+  exit 1
+fi
+
 if [[ ${EUID} -ne 0 ]]; then
   echo "Run this script as root." >&2
   exit 1

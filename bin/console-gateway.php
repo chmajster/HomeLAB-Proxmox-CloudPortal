@@ -9,6 +9,10 @@ use CloudPortal\Services\Proxmox\ConsoleToken;
 $root = dirname(__DIR__);
 $autoload = is_file($root . '/vendor/autoload.php') ? $root . '/vendor/autoload.php' : $root . '/autoload.php';
 require $autoload;
+if ((new \CloudPortal\Services\Infrastructure\BackendConfiguration($root))->configured()) {
+    fwrite(STDERR, "Infrastructure connections are handled by Cloudportal-backed. Local console gateway disabled.\n");
+    exit(1);
+}
 
 $options = getopt('', ['listen::']);
 $listen = trim((string) ($options['listen'] ?? '127.0.0.1:6080'));

@@ -7,15 +7,20 @@ use CloudPortal\Http\HttpException;
 
 final class InfrastructureBackendClient
 {
+    private int $responseStatus = 200;
+    private string $responseBody = '';
     public function __construct(private readonly array $config, private readonly ?string $token = null, private readonly ?\Closure $transport = null)
     {
         $url = parse_url((string) ($config['url'] ?? ''));
         if (!is_array($url) || ($url['scheme'] ?? '') !== 'https' || empty($url['host']) || (isset($url['user']) || isset($url['pass'])) || isset($url['query']) || isset($url['fragment']) || !in_array($url['path'] ?? '', ['', '/'], true)) {
             throw new HttpException(422, 'Backend URL musi wskazywać adres HTTPS bez ścieżki i danych logowania.');
         }
+        if ((int) ($config['timeout'] ?? 30) < 1 || (int) ($config['timeout'] ?? 30) > 120) {
+            throw new HttpException(422, 'Timeout: 1–120 sekund.');
+        }
     }
 
-    public function request(string $method, string $path, ?array $body = null, ?string $idempotencyKey = null, bool $allowUnavailable = false): array
+    public function request(string $method, string $path, array|\stdClass|null $body = null, ?string $idempotencyKey = null, bool $allowUnavailable = false): array
     {
         if (!preg_match('#^/[a-z0-9/_-]+(?:\?[a-zA-Z0-9_=&%.-]+)?$#D', $path) || str_contains($path, '..')) {
             throw new \InvalidArgumentException('Invalid backend API path.');
@@ -59,6 +64,8 @@ final class InfrastructureBackendClient
             curl_close($curl);
             if ($ok === false || $tooLarge) throw new HttpException(503, 'Backend niedostępny, błąd TLS albo przekroczony limit odpowiedzi.');
         }
+        $this->responseStatus = $status;
+        $this->responseBody = $raw;
         try { $data = json_decode($raw, true, 64, JSON_THROW_ON_ERROR); }
         catch (\JsonException) { throw new HttpException(502, 'Backend zwrócił nieprawidłowy JSON.'); }
         if (!is_array($data)) throw new HttpException(502, 'Nieprawidłowa odpowiedź backendu.');
@@ -69,6 +76,16 @@ final class InfrastructureBackendClient
             throw new HttpException(in_array($status, [400,401,403,404,409,413,422,429,503], true) ? $status : 502, (string) $detail);
         }
         return $data;
+    }
+
+    public function responseStatus(): int { return $this->responseStatus; }
+    public function responseBody(): string { return $this->responseBody; }
+
+    private function nodeQuery(?string $node): string
+    {
+        if ($node === null) return '';
+        if (!preg_match('/^[A-Za-z0-9_.-]{1,63}$/D', $node)) throw new \InvalidArgumentException('Invalid node name.');
+        return '?node='.rawurlencode($node);
     }
 
     public static function uuid(): string
@@ -127,9 +144,9 @@ final class InfrastructureBackendClient
     public function getJob(int|string $id): array { return $this->request('GET', '/jobs/'.$this->id($id)); }
     public function createJob(array $data, string $key): array { return $this->request('POST', '/jobs', $data, $key); }
     public function getProviderNodes(int $id): array { return $this->request('GET', '/providers/'.$this->id($id).'/nodes'); }
-    public function getProviderStorages(int $id): array { return $this->request('GET', '/providers/'.$this->id($id).'/storages'); }
-    public function getProviderNetworks(int $id): array { return $this->request('GET', '/providers/'.$this->id($id).'/networks'); }
-    public function getProviderTemplates(int $id): array { return $this->request('GET', '/providers/'.$this->id($id).'/templates'); }
-    public function getProviderVms(int $id): array { return $this->request('GET', '/providers/'.$this->id($id).'/vms'); }
+    public function getProviderStorages(int $id, ?string $node=null): array { return $this->request('GET', '/providers/'.$this->id($id).'/storages'.$this->nodeQuery($node)); }
+    public function getProviderNetworks(int $id, ?string $node=null): array { return $this->request('GET', '/providers/'.$this->id($id).'/networks'.$this->nodeQuery($node)); }
+    public function getProviderTemplates(int $id, ?string $node=null): array { return $this->request('GET', '/providers/'.$this->id($id).'/templates'.$this->nodeQuery($node)); }
+    public function getProviderVms(int $id, ?string $node=null): array { return $this->request('GET', '/providers/'.$this->id($id).'/vms'.$this->nodeQuery($node)); }
     public function getProviderPools(int $id): array { return $this->request('GET', '/providers/'.$this->id($id).'/pools'); }
 }

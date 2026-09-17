@@ -32,3 +32,12 @@ Tryb centralny blokuje stare trasy aplikacji, lokalny worker oraz lokalny consol
 ## Testy
 
 `tests/Unit/InfrastructureBackendClientTest.php` sprawdza tożsamość użytkownika, brak fallbacku do service token, nagłówki korelacji/idempotencji, 403, nieprawidłowe odpowiedzi, niedostępnego workera, HTTPS URL i uprawnienia pliku konfiguracji. Zmiany API wymagają równoczesnej aktualizacji tego klienta, formularzy i testów w obu repozytoriach.
+# PHP jako proxy
+
+W trybie centralnym przeglądarka komunikuje się z PHP pod `/backend-api`, a PHP przekazuje żądanie HTTPS do `/api/v1` backendu z tokenem zalogowanego użytkownika. Proxy zachowuje typy JSON (w tym `{}` i `[]`), kod odpowiedzi, `Idempotency-Key`, `X-Request-ID` i filtr `node` dla zasobów Proxmox. PHP obsługuje sesję przeglądarki i CSRF. Backend wykonuje autoryzację oraz wszystkie operacje infrastrukturalne.
+
+Niedostępność backendu daje błąd 503. Lokalne klienty Proxmox, Terraform i Ansible są wtedy nadal zablokowane. Worker PHP sprawdza tryb przed pobraniem kolejnego zadania; gateway konsoli nie uruchamia lokalnego połączenia. Sesja PHP jest przypisana do adresu backendu, więc zmiana tego adresu wymaga ponownego logowania i nie przesyła starego tokena do nowego serwera.
+
+Formularz VM pobiera storage i sieci dla wybranego węzła. Formularze workflow i osobnych zadań Ansible pobierają zatwierdzone playbooki z backendu, dobierają credential SSH/WinRM i przekazują tylko dozwolone parametry `hostname`/`timezone`. Sekrety pozostają wyłącznie w backendzie.
+
+Testy `tests/e2e/backend-proxy-ui.spec.js` sprawdzają interakcje formularzy w przeglądarce na deterministycznych odpowiedziach API. Niezależny test `tests/test_portal_http_e2e.py` w repozytorium backendu sprawdza rzeczywiste PHP → HTTPS FastAPI, bez atrap HTTP.

@@ -115,6 +115,7 @@ final class TerraformProvisioner
     /** @param array<string,mixed> $request @return array<string,mixed> */
     private function invoke(array $request): array
     {
+        \CloudPortal\Services\Infrastructure\BackendConfiguration::assertLocalExecutionAllowed();
         if (!str_starts_with($this->command, '/') || preg_match('/[\r\n\0]/', $this->command)) throw new \RuntimeException('Terraform provisioner command must be a fixed absolute path.');
         $payload = json_encode($request, JSON_THROW_ON_ERROR | JSON_UNESCAPED_SLASHES);
         $descriptors = [0 => ['pipe', 'r'], 1 => ['pipe', 'w'], 2 => ['pipe', 'w']];

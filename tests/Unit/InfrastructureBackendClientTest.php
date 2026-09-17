@@ -5,6 +5,7 @@ namespace CloudPortal\Tests\Unit;
 use CloudPortal\Http\HttpException;
 use CloudPortal\Services\Infrastructure\InfrastructureBackendClient;
 use CloudPortal\Services\Infrastructure\BackendConfiguration;
+use CloudPortal\Services\Infrastructure\BackendSession;
 use PHPUnit\Framework\TestCase;
 
 final class InfrastructureBackendClientTest extends TestCase
@@ -55,5 +56,48 @@ final class InfrastructureBackendClientTest extends TestCase
         $root=sys_get_temp_dir().'/backend-config-'.bin2hex(random_bytes(8));mkdir($root);mkdir($root.'/config');mkdir($root.'/storage');
         try{$c=new BackendConfiguration($root);$data=['url'=>'https://backend.example','token'=>'cp_'.str_repeat('s',64),'timeout'=>30,'verify_tls'=>true];$c->save($data);self::assertSame($data['token'],$c->load()['token']);self::assertSame(0600,fileperms($root.'/config/backend.json')&0777);}
         finally{@unlink($root.'/config/backend.json');rmdir($root.'/config');rmdir($root.'/storage');rmdir($root);}
+    }
+
+    public function testDiscoveryPassesSelectedNodeAndResponseStatus(): void
+    {
+        $urls=[];
+        $client=new InfrastructureBackendClient(['url'=>'https://backend.example'],null,
+            static function($method,$url)use(&$urls):array{$urls[]=$url;return [200,'{"items":[]}'];});
+        $client->getProviderStorages(5,'pve02');
+        $client->getProviderNetworks(5,'pve02');
+        self::assertSame(['https://backend.example/api/v1/providers/5/storages?node=pve02','https://backend.example/api/v1/providers/5/networks?node=pve02'],$urls);
+        $client=new InfrastructureBackendClient(['url'=>'https://backend.example'],null,static fn()=>[202,'{"id":"queued-job"}']);
+        $client->createJob([],InfrastructureBackendClient::uuid());
+        self::assertSame(202,$client->responseStatus());
+    }
+
+    public function testChangingBackendNeverForwardsPreviousSessionTokens(): void
+    {
+        $_SESSION=['backend_origin'=>'https://old.example','backend_access'=>'cp_'.str_repeat('u',64)];
+        try {
+            (new BackendSession(['url'=>'https://new.example']))->client();
+            self::fail('Old session must not be sent to another backend');
+        } catch(HttpException $e) {
+            self::assertSame(401,$e->status);
+            self::assertSame([],$_SESSION);
+        }
+    }
+
+    public function testCentralModeBlocksLocalExecutionEvenInAlreadyStartedWorker(): void
+    {
+        $before=getenv('CP_BACKEND_URL');
+        try {
+            putenv('CP_BACKEND_URL=https://backend.example');
+            $this->expectException(\RuntimeException::class);
+            BackendConfiguration::assertLocalExecutionAllowed();
+        } finally {
+            putenv($before===false?'CP_BACKEND_URL':'CP_BACKEND_URL='.$before);
+        }
+    }
+
+    public function testTimeoutIsValidatedBeforeAnyConnectionAttempt(): void
+    {
+        $this->expectException(HttpException::class);
+        new InfrastructureBackendClient(['url'=>'https://backend.example','timeout'=>0]);
     }
 }

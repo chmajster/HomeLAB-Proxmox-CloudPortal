@@ -37,7 +37,7 @@
   document.getElementById('close-details').onclick=()=>details.close();
   details.addEventListener('close',()=>{if(detailTimer)clearTimeout(detailTimer);detailTimer=null;document.getElementById('details-content').replaceChildren();});
   editor.addEventListener('close',()=>{fields.replaceChildren();submitAction=null;});
-  function openForm(title, action) { fields.replaceChildren();document.getElementById('form-error').textContent='';document.getElementById('editor-title').textContent=title;submitAction=action;formKey=uuid();editor.showModal(); }
+  function openForm(title, action) { document.getElementById('save').disabled=false;fields.replaceChildren();document.getElementById('form-error').textContent='';document.getElementById('editor-title').textContent=title;submitAction=action;formKey=uuid();editor.showModal(); }
   function input(name,label,value='',type='text',required=true) {
     const wrapper=el('label',label);const node=type==='textarea'?el('textarea'):el('input');
     node.name=name;if(type!=='textarea')node.type=type;node.required=required;
@@ -117,7 +117,7 @@
     });
     input('name','Nazwa',row?.name||'');const type=select('type','Typ',['proxmox','ssh','winrm','vmware','aws','azure','openstack','other'].map(t=>[t,t]),row?.type||'proxmox');
     input('endpoint','Endpoint HTTPS (dla API)',row?.endpoint||'','url',false);input('username','Użytkownik',row?.username||'','text',false);input('verify_ssl','Weryfikuj certyfikat',row?.verify_ssl??true,'checkbox',false);
-    fields.append(el('p',row?'Puste pola sekretów zachowują zapisane wartości. Zmiana adresu, użytkownika lub TLS wymaga ponownego podania kompletu sekretów.':'Wprowadź credentiale wymagane przez wybrany typ.'));
+    fields.append(el('p',row?'Pozostaw wszystkie pola sekretów puste, aby zachować zapisany komplet. Podanie choć jednego sekretu zastępuje cały komplet. Zmiany credentiala wymagają zakończenia aktywnych zadań.':'Wprowadź credentiale wymagane przez wybrany typ.'));
     const allowed={proxmox:['password','token_id','token_secret'],ssh:['password','private_key','known_hosts'],winrm:['password'],vmware:['password'],aws:['access_key_id','secret_access_key','session_token'],azure:['tenant_id','client_id','client_secret','subscription_id'],openstack:['password','project_name','domain_name'],other:['secret']};
     const nodes={};for(const key of [...new Set(Object.values(allowed).flat())])nodes[key]=input(key,key,'', ['private_key','known_hosts'].includes(key)?'textarea':'password',false);
     const update=()=>{for(const [key,node]of Object.entries(nodes)){node.parentElement.hidden=!allowed[type.value]?.includes(key);if(node.parentElement.hidden)node.value='';}};type.onchange=update;update();
@@ -137,24 +137,67 @@
       const variables={name:value('vm_name'),node:value('node'),template_id:number('template_id'),template_node:value('template_node')||value('node'),cpu:number('cpu'),memory:number('memory'),disk:number('disk'),network:value('network'),storage:value('storage'),ssh_username:value('ssh_username')};
       if(value('ssh_public_key'))variables.ssh_public_key=value('ssh_public_key');if(value('vlan_id'))variables.vlan_id=number('vlan_id');
       const data={name:value('name'),provider_id:provider.id,credentials_id:provider.credentials_id,template:'proxmox-vm',variables,executor:value('executor')};
-      if(value('playbook'))data.ansible={playbook:value('playbook'),credentials_id:number('ansible_credential'),variables:{}};
+      if(value('playbook'))data.ansible=ansibleValues('ansible_credential');
       const result=await api('/deployments','POST',data,key);message('Deployment utworzony. Zadanie: '+result.job.id);
     });
     input('name','Nazwa deploymentu');const provider=select('provider_id','Połączenie Proxmox',providers.map(p=>[p.id,p.name]));
     input('vm_name','Nazwa VM');select('node','Węzeł',[]);select('template_id','Szablon VM',[]);input('template_node','Węzeł szablonu','','text',false);select('storage','Storage',[]);select('network','Sieć',[]);
     for(const [key,label,defaultValue,min,max]of [['cpu','vCPU',2,1,128],['memory','RAM (MiB)',4096,512,1048576],['disk','Dysk (GiB)',40,1,65536]]){const n=input(key,label,defaultValue,'number');n.min=min;n.max=max;}
     const vlan=input('vlan_id','VLAN (opcjonalnie)','','number',false);vlan.min=1;vlan.max=4094;input('ssh_username','Użytkownik cloud-init','clouduser');input('ssh_public_key','Publiczny klucz SSH','','textarea',false);select('executor','Executor',[['terraform','Terraform'],['opentofu','OpenTofu (wymaga instalacji na backendzie)']],'terraform');
-    if(can('ansible.execute')) {select('playbook','Ansible po utworzeniu VM (opcjonalnie)',[['bootstrap-linux','Bootstrap Linux'],['validate-linux','Validate Linux'],['validate-windows','Validate Windows']],'',false,false);select('ansible_credential','Credential SSH / WinRM',credentials.filter(c=>['ssh','winrm'].includes(c.type)).map(c=>[c.id,c.name]),'',false,false);}
+    if(can('ansible.execute')&&can('ansible.read')&&can('credentials.read')) ansibleFields(credentials,await list('/ansible/playbooks'),'ansible_credential',true);
     function replace(name,options){const node=form.elements.namedItem(name);node.replaceChildren();for(const [id,label]of options){const o=el('option',label);o.value=id;node.append(o);}}
-    provider.onchange=async()=>{try{const id=provider.value;if(!id)return;const [nodes,templates,storages,networks]=await Promise.all(['nodes','templates','storages','networks'].map(r=>list('/providers/'+id+'/'+r)));
-      replace('node',nodes.map(n=>[n.node,n.node]));replace('template_id',templates.map(t=>[t.vmid,`${t.name||t.vmid} — ${t.node}`]));replace('storage',storages.map(s=>[s.storage,s.storage]));replace('network',[...new Set(networks.filter(n=>n.type==='bridge'||n.type==='OVSBridge').map(n=>n.iface))].map(n=>[n,n]));
-      const syncTemplate=()=>{form.elements.namedItem('template_node').value=templates.find(t=>String(t.vmid)===value('template_id'))?.node||'';};form.elements.namedItem('template_id').onchange=syncTemplate;syncTemplate();
-    }catch(e){document.getElementById('form-error').textContent=e.message;}};
+    let discoveryVersion=0;
+    const nodeInput=form.elements.namedItem('node');
+    const save=document.getElementById('save');save.disabled=true;
+    async function nodeResources(version,id) {
+      save.disabled=true;replace('storage',[]);replace('network',[]);
+      const node=nodeInput.value;if(!node)return;
+      const [storages,networks]=await Promise.all(['storages','networks'].map(r=>list('/providers/'+id+'/'+r+'?node='+encodeURIComponent(node))));
+      if(version!==discoveryVersion||id!==provider.value||node!==nodeInput.value)return;
+      replace('storage',storages.filter(s=>!s.disable&&s.enabled!==0&&s.active!==0&&String(s.content||'').split(',').includes('images')).map(s=>[s.storage,s.storage]));
+      replace('network',networks.filter(n=>n.type==='bridge'||n.type==='OVSBridge').map(n=>[n.iface,n.iface]));
+      save.disabled=false;
+    }
+    provider.onchange=async()=>{
+      const version=++discoveryVersion,id=provider.value;save.disabled=true;
+      for(const name of ['node','template_id','storage','network'])replace(name,[]);
+      if(!id)return;
+      try{
+        const [nodes,templates]=await Promise.all(['nodes','templates'].map(r=>list('/providers/'+id+'/'+r)));
+        if(version!==discoveryVersion)return;
+        replace('node',nodes.filter(n=>!n.status||n.status==='online').map(n=>[n.node,n.node]));
+        replace('template_id',templates.map(t=>[t.vmid,`${t.name||t.vmid} — ${t.node}`]));
+        const syncTemplate=()=>{form.elements.namedItem('template_node').value=templates.find(t=>String(t.vmid)===value('template_id'))?.node||'';};
+        form.elements.namedItem('template_id').onchange=syncTemplate;syncTemplate();
+        await nodeResources(version,id);
+      }catch(e){document.getElementById('form-error').textContent=e.message;}
+    };
+    nodeInput.onchange=()=>nodeResources(++discoveryVersion,provider.value).catch(e=>{document.getElementById('form-error').textContent=e.message;});
+  }
+  function ansibleValues(credentialField){
+    const variables={};
+    if(value('playbook')==='bootstrap-linux')for(const key of ['hostname','timezone'])if(value('ansible_'+key))variables[key]=value('ansible_'+key);
+    return {playbook:value('playbook'),credentials_id:number(credentialField),variables};
+  }
+  function ansibleFields(credentials,books,credentialField,optional=false){
+    const playbook=select('playbook',optional?'Ansible po utworzeniu VM (opcjonalnie)':'Zatwierdzony playbook',books.map(p=>[p.id,p.name]),'',false,!optional);
+    const credential=select(credentialField,'Credential SSH / WinRM',[],'',false,!optional);
+    const hostname=input('ansible_hostname','Nazwa hosta (opcjonalnie)','','text',false);
+    const timezone=input('ansible_timezone','Strefa czasowa (opcjonalnie, np. Europe/Warsaw)','','text',false);
+    const update=()=>{
+      const book=books.find(b=>b.id===playbook.value),previous=credential.value;
+      credential.replaceChildren();const empty=el('option','Wybierz');empty.value='';credential.append(empty);
+      for(const c of credentials.filter(c=>c.type===book?.transport)){const option=el('option',c.name);option.value=c.id;option.selected=String(c.id)===previous;credential.append(option);}
+      credential.required=!!book;credential.parentElement.hidden=!book;
+      hostname.parentElement.hidden=!book?.variables.includes('hostname');timezone.parentElement.hidden=!book?.variables.includes('timezone');
+    };
+    playbook.onchange=update;update();
   }
   async function ansibleForm(){
     const creds=await all('/credentials'),books=await list('/ansible/playbooks');openForm('Uruchom Ansible',async key=>{
-      await api('/jobs','POST',{operation:'ansible.execute',ansible:{playbook:value('playbook'),credentials_id:number('credentials_id'),inventory:{hosts:value('hosts').split(/[\s,]+/).filter(Boolean)},variables:{}}},key);message('Zadanie Ansible dodane do kolejki.');
-    });select('playbook','Zatwierdzony playbook',books.map(p=>[p.id,p.name]));select('credentials_id','Credential',creds.filter(c=>['ssh','winrm'].includes(c.type)).map(c=>[c.id,c.name]));input('hosts','Adresy IP (po jednym w wierszu)','','textarea');
+      const ansible=ansibleValues('credentials_id');ansible.inventory={hosts:value('hosts').split(/[\s,]+/).filter(Boolean)};
+      await api('/jobs','POST',{operation:'ansible.execute',ansible},key);message('Zadanie Ansible dodane do kolejki.');
+    });ansibleFields(creds,books,'credentials_id');input('hosts','Adresy IP (po jednym w wierszu)','','textarea');
   }
   async function showLogs(row){
     const pre=el('pre',''),status=el('p','Request ID: '+row.request_id);showDetails('Logi: '+row.id,[status,pre]);let after=0;
@@ -210,8 +253,8 @@
     const path=resource==='ansible'?'/ansible/playbooks':'/'+resource;
     const rows=await list(path+'?offset='+offset+'&limit=100');renderTable(rows,resource);
     const creators={users:userForm,roles:roleForm,tokens:tokenForm,credentials:credentialForm,providers:providerForm,deployments:deploymentForm,ansible:ansibleForm};
-    const permission=resource==='ansible'?'ansible.execute':resource==='deployments'?'deployments.create':resource+'.create';
-    if(creators[resource]&&can(permission)){create.hidden=false;create.textContent=resource==='ansible'?'Uruchom':'Dodaj';create.onclick=()=>Promise.resolve(creators[resource]()).catch(e=>message(e.message,true));}
+    const needed=resource==='ansible'?['ansible.execute','jobs.execute','credentials.read']:resource==='deployments'?['deployments.create','terraform.execute','jobs.execute','providers.read']:resource==='providers'?['providers.create','credentials.read']:resource==='roles'?['roles.create','roles.read']:[resource+'.create'];
+    if(creators[resource]&&needed.every(can)){create.hidden=false;create.textContent=resource==='ansible'?'Uruchom':'Dodaj';create.onclick=()=>Promise.resolve(creators[resource]()).catch(e=>message(e.message,true));}
     if(resource==='tokens'&&['users.create','users.update','roles.create','roles.read','roles.assign','tokens.create','portal.connect'].every(can))content.prepend(button('Utwórz konto i token serwisowy portalu',serviceAccount));
     if(!['ansible','templates'].includes(resource)){
       document.getElementById('previous').hidden=offset===0;document.getElementById('next').hidden=rows.length<100;document.getElementById('page-number').textContent='Strona '+(offset/100+1);

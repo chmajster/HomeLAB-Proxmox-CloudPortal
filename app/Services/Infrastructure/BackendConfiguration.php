@@ -17,6 +17,12 @@ final class BackendConfiguration
         return ['url'=>'', 'token'=>'', 'timeout'=>30, 'verify_tls'=>true, ...$data];
     }
     public function configured(): bool { return $this->load()['url'] !== ''; }
+    public static function assertLocalExecutionAllowed(): void
+    {
+        if ((new self(dirname(__DIR__, 3)))->configured()) {
+            throw new \RuntimeException('Infrastructure operations must be sent through Cloudportal-backed. Local execution is disabled.');
+        }
+    }
     public function save(array $data): void
     {
         new InfrastructureBackendClient($data);
