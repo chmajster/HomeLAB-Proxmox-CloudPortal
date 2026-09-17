@@ -51,6 +51,10 @@ final class PortalController
         if($request->path==='/logout' && $request->method==='POST') { $session->logout(); return Response::redirect($this->app->url('/login')); }
         try { $me=$session->current(); }
         catch(HttpException $e) { if($e->status===401 && !$request->expectsJson()) return Response::redirect($this->app->url('/login')); throw $e; }
+        if(($me['user']['must_change_password']??false) && !in_array($request->path,['/account','/backend-api/auth/change-password'],true)) {
+            if($request->expectsJson()) throw new HttpException(403,'Wymagana zmiana hasła.');
+            return Response::redirect($this->app->url('/account'));
+        }
         if(str_starts_with($request->path,'/backend-api/')) return $this->proxy($request,$session->client());
         $pages=['/'=>'dashboard','/infrastructure'=>'dashboard','/admin/users'=>'users','/admin/roles'=>'roles',
             '/admin/permissions'=>'permissions','/admin/tokens'=>'tokens','/admin/audit'=>'audit','/infrastructure/providers'=>'providers',

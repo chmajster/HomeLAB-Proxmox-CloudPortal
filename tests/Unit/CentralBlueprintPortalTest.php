@@ -28,4 +28,12 @@ final class CentralBlueprintPortalTest extends TestCase
         self::assertStringContainsString('hostnames/generate',$controller);
         self::assertStringContainsString('hostname-schemes',$controller);
     }
+
+    public function testCentralPortalForcesBootstrapPasswordChange(): void
+    {
+        $controller=(string)file_get_contents(dirname(__DIR__,2).'/app/Controllers/Backend/PortalController.php');
+        self::assertStringContainsString('must_change_password',$controller);
+        self::assertStringContainsString("['/account','/backend-api/auth/change-password']",$controller);
+        self::assertStringContainsString("Response::redirect(\$this->app->url('/account'))",$controller);
+    }
 }

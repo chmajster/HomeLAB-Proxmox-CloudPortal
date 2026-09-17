@@ -21,13 +21,11 @@ test('installer loads its styles, scripts and icons without browser errors', asy
     ['/assets/js/installer.js', /(?:application|text)\/javascript/],
     ['/assets/icons.svg', /image\/svg\+xml/],
   ];
-  const responses = assets.map(([path]) => page.waitForResponse(response =>
-    new URL(response.url()).pathname.endsWith(path) && response.request().method() === 'GET'
-  ));
   await page.goto('/install', {waitUntil: 'networkidle'});
-  for (const [index, response] of (await Promise.all(responses)).entries()) {
-    expect(response.status(), assets[index][0]).toBe(200);
-    expect(response.headers()['content-type'], assets[index][0]).toMatch(assets[index][1]);
+  for (const [path, contentType] of assets) {
+    const response = await page.request.get(path);
+    expect(response.status(), path).toBe(200);
+    expect(response.headers()['content-type'], path).toMatch(contentType);
   }
   await expect(page.locator('.installer-header')).toHaveCSS('display', 'flex');
   await expect(page.locator('.installer-progress')).toHaveCSS('display', 'grid');
