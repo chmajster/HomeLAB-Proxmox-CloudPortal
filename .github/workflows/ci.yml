@@ -94,6 +94,7 @@ jobs:
           node-version: '22'
       - run: composer install --no-interaction --prefer-dist
       - run: npm install --no-audit --no-fund
+      - run: node --check public/assets/backend.js
       - run: node --check public/assets/js/cloud-features.js
       - run: node --check public/assets/js/openapi-docs.js
       - run: node --check public/assets/js/security.js

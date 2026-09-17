@@ -86,6 +86,11 @@ try {
     $_SERVER['CLOUD_PORTAL_CORRELATION_ID'] = $correlationId;
     header('X-Correlation-ID: ' . $correlationId);
 
+    $centralPortal = new \CloudPortal\Controllers\Backend\PortalController($app);
+    if ($centralPortal->handles($request)) {
+        $centralPortal->dispatch($request)->send();
+    }
+
     $jsonInstallPath = $root . '/install.json';
     if (!$app->installed() && in_array($request->path, ['/install', '/install/'], true) && is_file($jsonInstallPath)) {
         try {

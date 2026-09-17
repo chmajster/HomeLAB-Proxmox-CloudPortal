@@ -74,6 +74,9 @@ function handleClient($client, string $root): void
         }
 
         $app = new Application($root);
+        if ((new \CloudPortal\Services\Infrastructure\BackendConfiguration($root))->configured()) {
+            throw new \RuntimeException('Local console gateway is unavailable in central backend mode.');
+        }
         $secret = (string) $app->config->get('security.encryption_key', $app->config->get('app.key', ''));
         $claims = (new ConsoleToken($secret))->verify(rawurldecode($match[1]));
         $connectionId = positiveInt($claims['connection_id'] ?? null);

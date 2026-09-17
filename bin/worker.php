@@ -24,6 +24,10 @@ $root = dirname(__DIR__);
 require is_file($root . '/vendor/autoload.php') ? $root . '/vendor/autoload.php' : $root . '/autoload.php';
 $app = new Application($root);
 date_default_timezone_set((string) $app->config->get('app.timezone', 'UTC'));
+if ((new \CloudPortal\Services\Infrastructure\BackendConfiguration($root))->configured()) {
+    fwrite(STDERR, "Infrastructure jobs run only in Cloudportal-backed. Local worker disabled.\n");
+    exit(1);
+}
 if (!$app->installed()) {
     fwrite(STDERR, "Portal is not installed.\n");
     exit(1);

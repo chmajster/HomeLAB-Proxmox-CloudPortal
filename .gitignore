@@ -16,3 +16,5 @@
 /storage/uploads/
 /.idea/
 /.vscode/
+/config/backend.json
+/storage/backend-setup.token
