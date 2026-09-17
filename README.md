@@ -243,3 +243,7 @@ Integracje MariaDB używają wyłącznie izolowanej bazy zawierającej słowo `t
 w `TEST_DB_DSN`. Testy obejmują także przerwaną finalizację, retry, lock,
 redakcję sekretów, ochronę kroków, prawdziwy import schematu i brak duplikacji
 administratora.
+
+## Centralny backend Cloudportal-backed
+
+Portal obsługuje teraz zewnętrzny centralny backend dla użytkowników, logowania, RBAC, tokenów, credentiali i provisioningu. Konfiguracja: **Ustawienia → Infrastruktura → Backend** (`/settings/infrastructure/backend`). Nową instalację przygotowuje `php bin/backend-setup.php`; konta powstają w backendzie. Szczegóły konfiguracji, tokena serwisowego i przełączenia istniejącego systemu: [docs/central-backend.md](docs/central-backend.md).
