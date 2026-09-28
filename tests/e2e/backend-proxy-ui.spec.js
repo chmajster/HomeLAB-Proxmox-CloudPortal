@@ -17,7 +17,7 @@ async function backendFixtures(page) {
       return route.fulfill({ status: 202, json: { id: 'deployment-1', job: { id: 'job-1' } } });
     }
     let items = [];
-    if (path === '/providers') items = [{ id: 1, name: 'Proxmox LAB', credentials_id: 10 }];
+    if (path === '/providers') items = [{ id: 1, name: 'Proxmox LAB', type: 'proxmox', enabled: true, configured: true, connection_status: 'unknown', credentials_id: 10 }];
     if (path === '/credentials') items = [{ id: 20, name: 'SSH Linux', type: 'ssh' }, { id: 21, name: 'WinRM Windows', type: 'winrm' }];
     if (path === '/ansible/playbooks') items = books;
     if (path.endsWith('/nodes')) items = [{ node: 'pve01', status: 'online' }, { node: 'pve02', status: 'online' }];
