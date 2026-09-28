@@ -15,7 +15,7 @@
     const hex=Array.from(bytes,b=>b.toString(16).padStart(2,'0')).join('');
     return `${hex.slice(0,8)}-${hex.slice(8,12)}-${hex.slice(12,16)}-${hex.slice(16,20)}-${hex.slice(20)}`;
   };
-  const titles = {dashboard:'Dashboard infrastruktury', users:'Użytkownicy', roles:'Role', permissions:'Uprawnienia', tokens:'Tokeny API', audit:'Audit', providers:'Połączenia', credentials:'Credentiale', templates:'Szablony Terraform', deployments:'Deploymenty', jobs:'Zadania', logs:'Logi zadań', ansible:'Playbooki Ansible', account:'Moje konto'};
+  const titles = {dashboard:'Dashboard infrastruktury', users:'Użytkownicy', roles:'Role', permissions:'Uprawnienia', tokens:'Tokeny API', audit:'Audit', platforms:'Platformy', providers:'Połączenia', credentials:'Credentiale', templates:'Szablony Terraform', deployments:'Deploymenty', jobs:'Zadania', logs:'Logi zadań', ansible:'Playbooki Ansible', account:'Moje konto'};
   document.getElementById('page-title').textContent = titles[boot.page] || boot.page;
   function el(tag, text, className) { const n=document.createElement(tag); if(text!==undefined)n.textContent=String(text); if(className)n.className=className; return n; }
   function message(text, error=false) { const box=document.getElementById('message'); box.hidden=false; box.textContent=text; box.className=error?'error':''; }
@@ -123,7 +123,25 @@
     const update=()=>{for(const [key,node]of Object.entries(nodes)){node.parentElement.hidden=!allowed[type.value]?.includes(key);if(node.parentElement.hidden)node.value='';}};type.onchange=update;update();
   }
   async function providerForm(row=null){
-    const creds=await all('/credentials');openForm(row?'Edytuj połączenie':'Dodaj połączenie Proxmox',async key=>{await api('/providers'+(row?'/'+row.id:''),row?'PUT':'POST',{name:value('name'),type:'proxmox',credentials_id:number('credentials_id')},key);message('Połączenie zapisane.');});input('name','Nazwa',row?.name||'');select('credentials_id','Credential Proxmox',creds.filter(c=>c.type==='proxmox').map(c=>[c.id,c.name]),row?.credentials_id||'');
+    const [creds,platforms]=await Promise.all([all('/credentials'),list('/settings/platforms')]);
+    const enabledTypes=platforms.filter(p=>p.enabled||p.name===row?.type);
+    if(!enabledTypes.length)throw new Error('Brak włączonych platform. Włącz platformę w Ustawienia → Platformy.');
+    openForm(row?'Edytuj połączenie':'Dodaj połączenie',async key=>{
+      await api('/providers'+(row?'/'+row.id:''),row?'PUT':'POST',{name:value('name'),type:value('type'),credentials_id:number('credentials_id')},key);
+      message('Połączenie zapisane.');
+    });
+    input('name','Nazwa',row?.name||'');
+    const type=select('type','Typ platformy',enabledTypes.map(p=>[p.name,p.label||p.name]),row?.type||enabledTypes[0].name);
+    const credential=select('credentials_id','Credential',[],row?.credentials_id||'');
+    const refresh=()=>{
+      const previous=String(row?.credentials_id||credential.value||'');
+      credential.replaceChildren();
+      const empty=el('option','Wybierz');empty.value='';credential.append(empty);
+      for(const item of creds.filter(item=>item.type===type.value)){
+        const option=el('option',item.name);option.value=String(item.id);option.selected=String(item.id)===previous;credential.append(option);
+      }
+    };
+    type.onchange=refresh;refresh();
   }
   async function discoverProvider(row){
     const selector=el('select');for(const resource of ['nodes','storages','networks','templates','vms','pools']){const o=el('option',resource);o.value=resource;selector.append(o);}
@@ -131,7 +149,8 @@
     const update=async()=>{try{body.textContent=JSON.stringify((await api('/providers/'+row.id+'/'+selector.value)).items,null,2);}catch(e){body.textContent=e.message;}};selector.onchange=update;await update();
   }
   async function deploymentForm(){
-    const providers=await all('/providers');const credentials=can('credentials.read')?await all('/credentials'):[];
+    const providers=(await all('/providers')).filter(p=>p.enabled!==false&&p.type==='proxmox');const credentials=can('credentials.read')?await all('/credentials'):[];
+    if(!providers.length)throw new Error('Brak aktywnego połączenia Proxmox. Włącz Proxmox w Ustawienia → Platformy i skonfiguruj połączenie.');
     openForm('Utwórz VM',async key=>{
       const provider=providers.find(p=>p.id===number('provider_id'));
       const variables={name:value('vm_name'),node:value('node'),template_id:number('template_id'),template_node:value('template_node')||value('node'),cpu:number('cpu'),memory:number('memory'),disk:number('disk'),network:value('network'),storage:value('storage'),ssh_username:value('ssh_username')};
@@ -207,8 +226,17 @@
   }
   function rowActions(row,resource){
     const actions=el('div',undefined,'actions');actions.append(button('Szczegóły',()=>recordDetails(row)));
+    if(resource==='platforms'){
+      if(row.enabled)actions.append(button('Połączenia',()=>{location.assign(boot.base+'/infrastructure/providers');}));
+      if(can('settings.update'))actions.append(button(row.enabled?'Wyłącz':'Włącz',async()=>{
+        await api('/settings/platforms/'+row.name,'PUT',{enabled:!row.enabled});
+        message((row.label||row.name)+(row.enabled?' wyłączona.':' włączona.'));
+        await load();
+      },row.enabled?'danger':'secondary'));
+      return actions;
+    }
     const edit={users:userForm,roles:roleForm,credentials:credentialForm,providers:providerForm};
-    if(edit[resource]&&can(resource+'.update'))actions.append(button('Edytuj',()=>edit[resource](row)));
+    if(edit[resource]&&can(resource+'.update')&&(resource!=='providers'||row.enabled!==false))actions.append(button('Edytuj',()=>edit[resource](row)));
     if(['users','roles','credentials','providers'].includes(resource)&&can(resource+'.delete'))actions.append(button('Usuń',()=>change('Usunąć rekord '+row.id,row.id,'/'+resource+'/'+row.id,'DELETE'),'danger'));
     if(resource==='users'){
       if(can('roles.assign')&&can('roles.read'))actions.append(button('Role',()=>assignRoles(row)));
@@ -220,7 +248,8 @@
     }
     if(resource==='tokens'&&can('tokens.revoke')&&!row.revoked_at)actions.append(button('Unieważnij',()=>change('Unieważnić token',row.id,'/tokens/'+row.id+'/revoke'),'danger'));
     if(resource==='credentials'&&can('credentials.test'))actions.append(button('Testuj',async()=>recordDetails(await api('/credentials/'+row.id+'/test','POST',{}))));
-    if(resource==='providers')actions.append(button('Zasoby',()=>discoverProvider(row)));
+    if(resource==='providers'&&row.enabled!==false)actions.append(button('Zasoby',()=>discoverProvider(row)));
+    if(resource==='providers'&&row.enabled===false&&can('settings.update'))actions.append(button('Włącz platformę',()=>{location.assign(boot.base+'/settings/platforms');}));
     if(resource==='deployments'&&!row.active_job_id&&row.status!=='destroyed'){
       if(can('jobs.execute')&&can('terraform.execute')){actions.append(button('Plan',async()=>{await api('/jobs','POST',{operation:'terraform.plan',deployment_id:row.id},uuid());message('Plan dodany do kolejki.');await load();}));}
       if(can('jobs.execute')&&can('terraform.execute')&&can('deployments.create'))actions.append(button('Apply / ponów',async()=>{if(!confirm('Uruchomić apply dla istniejącego deploymentu?'))return;await api('/jobs','POST',{operation:'terraform.apply',deployment_id:row.id},uuid());await load();}));
@@ -232,7 +261,7 @@
     }
     return actions;
   }
-  const columns={users:[['id','ID'],['username','Użytkownik'],['email','E-mail'],['is_active','Aktywny'],['is_service_account','Serwisowy']],roles:[['id','ID'],['name','Nazwa'],['permissions','Uprawnienia']],tokens:[['name','Nazwa'],['token_prefix','Prefix'],['user_id','Konto'],['scopes','Zakres'],['expires_at','Wygasa'],['revoked_at','Unieważniony']],credentials:[['name','Nazwa'],['type','Typ'],['endpoint','Endpoint'],['username','Użytkownik'],['configured','Skonfigurowany']],providers:[['id','ID'],['name','Nazwa'],['type','Typ'],['credentials_id','Credential']],deployments:[['name','Nazwa'],['status','Status'],['provider','Provider'],['template','Szablon'],['created_at','Utworzono']],jobs:[['id','ID'],['operation','Operacja'],['status','Status'],['request_id','Request ID'],['created_at','Utworzono']],audit:[['timestamp','Czas'],['user_id','Użytkownik'],['action','Operacja'],['resource','Zasób'],['result','Wynik'],['request_id','Request ID']],templates:[['id','ID'],['name','Nazwa'],['provider','Provider']],ansible:[['id','ID'],['name','Nazwa'],['transport','Transport'],['variables','Parametry']]};
+  const columns={users:[['id','ID'],['username','Użytkownik'],['email','E-mail'],['is_active','Aktywny'],['is_service_account','Serwisowy']],roles:[['id','ID'],['name','Nazwa'],['permissions','Uprawnienia']],tokens:[['name','Nazwa'],['token_prefix','Prefix'],['user_id','Konto'],['scopes','Zakres'],['expires_at','Wygasa'],['revoked_at','Unieważniony']],credentials:[['name','Nazwa'],['type','Typ'],['endpoint','Endpoint'],['username','Użytkownik'],['configured','Skonfigurowany']],platforms:[['label','Platforma'],['enabled','Włączona'],['configured','Skonfigurowana'],['connection_count','Połączenia']],providers:[['id','ID'],['name','Nazwa'],['type','Typ'],['enabled','Włączona'],['configured','Skonfigurowana'],['credentials_id','Credential']],deployments:[['name','Nazwa'],['status','Status'],['provider','Provider'],['template','Szablon'],['created_at','Utworzono']],jobs:[['id','ID'],['operation','Operacja'],['status','Status'],['request_id','Request ID'],['created_at','Utworzono']],audit:[['timestamp','Czas'],['user_id','Użytkownik'],['action','Operacja'],['resource','Zasób'],['result','Wynik'],['request_id','Request ID']],templates:[['id','ID'],['name','Nazwa'],['provider','Provider']],ansible:[['id','ID'],['name','Nazwa'],['transport','Transport'],['variables','Parametry']]};
   function renderTable(rows,resource){
     if(!rows.length){content.append(el('section','Brak rekordów.','card'));return;}
     const wrap=el('div',undefined,'table-wrap'),table=el('table'),head=el('thead'),tr=el('tr');
@@ -250,13 +279,13 @@
     }
     if(boot.page==='permissions'){const grid=el('section',undefined,'card permission-list');for(const p of await list('/permissions'))grid.append(el('p',p));content.append(grid);return;}
     let resource=boot.page==='logs'?'jobs':boot.page;
-    const path=resource==='ansible'?'/ansible/playbooks':'/'+resource;
+    const path=resource==='ansible'?'/ansible/playbooks':resource==='platforms'?'/settings/platforms':'/'+resource;
     const rows=await list(path+'?offset='+offset+'&limit=100');renderTable(rows,resource);
     const creators={users:userForm,roles:roleForm,tokens:tokenForm,credentials:credentialForm,providers:providerForm,deployments:deploymentForm,ansible:ansibleForm};
     const needed=resource==='ansible'?['ansible.execute','jobs.execute','credentials.read']:resource==='deployments'?['deployments.create','terraform.execute','jobs.execute','providers.read']:resource==='providers'?['providers.create','credentials.read']:resource==='roles'?['roles.create','roles.read']:[resource+'.create'];
     if(creators[resource]&&needed.every(can)){create.hidden=false;create.textContent=resource==='ansible'?'Uruchom':'Dodaj';create.onclick=()=>Promise.resolve(creators[resource]()).catch(e=>message(e.message,true));}
     if(resource==='tokens'&&['users.create','users.update','roles.create','roles.read','roles.assign','tokens.create','portal.connect'].every(can))content.prepend(button('Utwórz konto i token serwisowy portalu',serviceAccount));
-    if(!['ansible','templates'].includes(resource)){
+    if(!['ansible','templates','platforms'].includes(resource)){
       document.getElementById('previous').hidden=offset===0;document.getElementById('next').hidden=rows.length<100;document.getElementById('page-number').textContent='Strona '+(offset/100+1);
     }
   }
