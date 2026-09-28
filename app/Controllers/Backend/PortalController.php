@@ -55,10 +55,10 @@ final class PortalController
         $pages=['/'=>'dashboard','/infrastructure'=>'dashboard','/admin/users'=>'users','/admin/roles'=>'roles',
             '/admin/permissions'=>'permissions','/admin/tokens'=>'tokens','/admin/audit'=>'audit','/infrastructure/providers'=>'providers',
             '/infrastructure/credentials'=>'credentials','/infrastructure/templates'=>'templates','/infrastructure/deployments'=>'deployments',
-            '/infrastructure/jobs'=>'jobs','/infrastructure/logs'=>'logs','/infrastructure/ansible'=>'ansible','/account'=>'account'];
+            '/infrastructure/jobs'=>'jobs','/infrastructure/logs'=>'logs','/infrastructure/ansible'=>'ansible','/settings/platforms'=>'platforms','/account'=>'account'];
         $page=$pages[$request->path]??null;
         if($page===null || $request->method!=='GET') throw new HttpException(404,'Strona nie istnieje w trybie centralnego backendu.');
-        $permission=match($page) {'dashboard','account'=>null,'permissions'=>'roles.read','templates'=>'terraform.read','logs'=>'jobs.read',default=>$page.'.read'};
+        $permission=match($page) {'dashboard','account'=>null,'permissions'=>'roles.read','templates'=>'terraform.read','logs'=>'jobs.read','platforms'=>'settings.read',default=>$page.'.read'};
         if($permission!==null && !in_array($permission,$me['permissions'],true)) throw new HttpException(403,'Brak uprawnienia: '.$permission);
         return $this->render($page,$me,[]);
     }
@@ -66,9 +66,9 @@ final class PortalController
     {
         $path=substr($request->path,strlen('/backend-api'));
         $allowed=match($request->method) {
-            'GET'=>'#^/(?:health|info|permissions|audit|templates(?:/[a-z0-9_-]+)?|terraform/templates|ansible/playbooks|auth/me|(?:users|roles|tokens|credentials|providers|deployments|jobs)(?:/[a-z0-9-]+(?:/(?:roles|nodes|storages|networks|templates|vms|pools|logs))?)?)$#D',
+            'GET'=>'#^/(?:health|info|permissions|audit|templates(?:/[a-z0-9_-]+)?|terraform/templates|ansible/playbooks|auth/me|settings/platforms|(?:users|roles|tokens|credentials|providers|deployments|jobs)(?:/[a-z0-9-]+(?:/(?:roles|nodes|storages|networks|templates|vms|pools|logs))?)?)$#D',
             'POST'=>'#^/(?:users|roles|tokens|credentials|providers|deployments|jobs|auth/change-password|users/\d+/(?:enable|disable|unlock|reset-password)|tokens/\d+/revoke|credentials/\d+/test|deployments/[a-z0-9-]+/destroy|jobs/[a-z0-9-]+/cancel)$#D',
-            'PUT'=>'#^/(?:(?:users|roles|credentials|providers)/\d+|users/\d+/roles)$#D',
+            'PUT'=>'#^/(?:(?:users|roles|credentials|providers)/\d+|users/\d+/roles|settings/platforms/(?:proxmox|vmware|aws|azure|openstack))$#D',
             'DELETE'=>'#^/(?:users|roles|tokens|credentials|providers)/\d+$#D',
             default=>'#(?!)#',
         };
