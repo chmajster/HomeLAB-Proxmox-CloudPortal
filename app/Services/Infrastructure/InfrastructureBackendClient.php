@@ -132,6 +132,8 @@ final class InfrastructureBackendClient
     public function createCredential(array $data, string $key): array { return $this->request('POST', '/credentials', $data, $key); }
     public function updateCredential(int $id, array $data): array { return $this->request('PUT', '/credentials/'.$this->id($id), $data); }
     public function deleteCredential(int $id): array { return $this->request('DELETE', '/credentials/'.$this->id($id)); }
+    public function getPlatformSettings(): array { return $this->request('GET', '/settings/platforms'); }
+    public function updatePlatformSetting(string $type, bool $enabled): array { return $this->request('PUT', '/settings/platforms/'.$this->id($type), ['enabled'=>$enabled]); }
     public function getProviders(int $offset=0): array { return $this->request('GET', '/providers?offset='.max(0,$offset).'&limit=100'); }
     public function getProvider(int|string $id): array { return $this->request('GET', '/providers/'.$this->id($id)); }
     public function createProvider(array $data, string $key): array { return $this->request('POST', '/providers', $data, $key); }
