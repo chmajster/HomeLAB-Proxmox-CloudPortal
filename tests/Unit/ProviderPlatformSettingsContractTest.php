@@ -27,6 +27,7 @@ final class ProviderPlatformSettingsContractTest extends TestCase
         self::assertStringContainsString("value('type')", $script);
         self::assertStringContainsString("api('/settings/platforms/'+row.name,'PUT',{enabled:!row.enabled})", $script);
         self::assertStringContainsString("['enabled','Włączona']", $script);
+        self::assertStringContainsString("['connection_status','Stan połączenia']", $script);
 
         self::assertStringContainsString('function getPlatformSettings()', $client);
         self::assertStringContainsString('function updatePlatformSetting(', $client);
